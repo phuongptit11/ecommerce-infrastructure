@@ -1,79 +1,88 @@
-version: '3.8'
+# Hạ tầng TMĐT 3 tầng: Nginx (Web Server) -> Backend Node.js (máy chủ ứng dụng) -> PostgreSQL (lưu trữ dữ liệu)
+#
+#   Khởi động:         docker compose up -d --build
+#   Mở rộng backend:   docker compose up -d --scale backend=3
+#   Xem log:           docker compose logs -f backend
+#   Dừng:              docker compose down        (thêm -v để xóa dữ liệu, lần sau nạp lại schema/seed)
+#
+# Mọi biến đều có giá trị mặc định; muốn đổi mật khẩu, cổng... thì tạo file .env từ .env.example
+
+name: ecommerce
 
 services:
-  # ========================================================
-  # TẦNG 1: TẦNG WEB (NGINX - VÙNG MẠNG PUBLIC)
-  # ========================================================
+  # Tầng 1: Web Server, nơi duy nhất mở cổng ra ngoài
   nginx:
-    image: nginx:alpine
+    image: nginx:1.28-alpine
     container_name: ecommerce_nginx
     restart: unless-stopped
     ports:
-      # Chỉ có Nginx mở cổng ra bên ngoài máy chủ
-      - "80:80"
+      - "${NGINX_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend:/usr/share/nginx/html:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    networks:
+      - public_net
+
+  # Tầng 2: Máy chủ ứng dụng. Không đặt container_name và không mở cổng ra host để scale được nhiều bản sao
+  backend:
+    build: ./backend
+    image: ecommerce-backend:latest
+    restart: unless-stopped
+    init: true
+    environment:
+      PORT: 5000
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-ecommerce_db}
+      DB_USER: ${DB_USER:-ecommerce_user}
+      DB_PASSWORD: ${DB_PASSWORD:-ecommerce_secret}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     networks:
       - public_net
       - private_net
 
-  # ========================================================
-  # TẦNG 2: TẦNG ỨNG DỤNG (NODE.JS API - VÙNG MẠNG NỘI BỘ PRIVATE)
-  # ========================================================
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: ecommerce_backend
-    restart: unless-stopped
-    environment:
-      - PORT=5000
-      - DB_HOST=database
-      - DB_PORT=5432
-      - DB_NAME=ecommerce_db
-      - DB_USER=ecommerce_user
-      - DB_PASSWORD=ecommerce_secret
-    depends_on:
-      - database
-    networks:
-      - private_net
-    # Không expose cổng ra host, chỉ trao đổi qua mạng private_net
-
-  # ========================================================
-  # TẦNG 3: TẦNG DỮ LIỆU (POSTGRESQL - VÙNG MẠNG NỘI BỘ PRIVATE)
-  # ========================================================
+  # Tầng 3: Lưu trữ dữ liệu
   database:
     image: postgres:15-alpine
     container_name: ecommerce_database
     restart: unless-stopped
     environment:
-      - POSTGRES_DB=ecommerce_db
-      - POSTGRES_USER=ecommerce_user
-      - POSTGRES_PASSWORD=ecommerce_secret
+      POSTGRES_DB: ${DB_NAME:-ecommerce_db}
+      POSTGRES_USER: ${DB_USER:-ecommerce_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ecommerce_secret}
     ports:
-      # Mở cổng kết nối 127.0.0.1 để DBeaver trên máy cá nhân có thể xem dữ liệu
-      - "127.0.0.1:5432:5432"
+      # Chỉ mở cho máy host (127.0.0.1) để xem dữ liệu bằng DBeaver, không lộ ra mạng ngoài
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     volumes:
-      # Volume riêng biệt đảm bảo dữ liệu không bị mất khi tắt container (Stateful)
       - pg_data:/var/lib/postgresql/data
-      # Tự động nạp bảng và dữ liệu mẫu khi CSDL khởi tạo lần đầu
+      # Chỉ chạy một lần khi volume pg_data còn trống
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      # Kiểm tra qua TCP: trong lúc chạy schema/seed PostgreSQL chưa mở TCP nên chưa báo sẵn sàng
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - private_net
 
-networks:
-  # Vùng mạng công khai tiếp nhận truy cập từ bên ngoài
-  public_net:
-    driver: bridge
-  # Vùng mạng nội bộ cách ly an toàn cho App và Database
-  private_net:
-    driver: bridge
-
 volumes:
-  # Volume lưu trữ đĩa cứng vật lý cho PostgreSQL
   pg_data:
-    driver: local
+
+networks:
+  # Nginx chỉ thấy backend; database chỉ thấy backend
+  public_net:
+  private_net:

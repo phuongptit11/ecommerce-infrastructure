@@ -1,174 +1,215 @@
+'use strict';
+
 const express = require('express');
-const cors = require('cors');
-const { Pool } = require('pg');
-require('dotenv').config();
+const helmet = require('helmet');
+const morgan = require('morgan');
+const { Pool, types } = require('pg');
+
+// Cột NUMERIC (giá tiền) và COUNT(*) mặc định được trả về dạng chuỗi, đổi sang Number để JSON trả về dạng số
+types.setTypeParser(types.builtins.NUMERIC, parseFloat);
+types.setTypeParser(types.builtins.INT8, Number);
+
+const PORT = Number(process.env.PORT) || 5000;
+const MAX_INT = 2147483647; // giới hạn kiểu INT của PostgreSQL
+const MAX_PAGE = 100000;
+const MAX_ORDER_QUANTITY = 100;
+const PRODUCT_COLUMNS = 'id, name, price, stock, created_at';
+
+// Connection pool: tái sử dụng kết nối thay vì mở mới cho mỗi request.
+// Khi scale N bản sao backend, tổng kết nối là N x DB_POOL_MAX, phải nhỏ hơn max_connections (100) của PostgreSQL.
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT) || 5432,
+  database: process.env.DB_NAME || 'ecommerce_db',
+  user: process.env.DB_USER || 'ecommerce_user',
+  password: process.env.DB_PASSWORD,
+  max: Number(process.env.DB_POOL_MAX) || 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+pool.on('error', (err) => {
+  console.error('Lỗi kết nối CSDL:', err.message);
+});
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// Nhận số nguyên dạng number hoặc chuỗi chữ số (ô input của frontend gửi lên dạng chuỗi)
+function toInteger(value) {
+  if (typeof value === 'number') return Number.isInteger(value) ? value : NaN;
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value.trim());
+  return NaN;
+}
+
+function parseInteger(value, name, min, max) {
+  const number = toInteger(value);
+  if (!(number >= min && number <= max)) {
+    throw new HttpError(400, `${name} phải là số nguyên từ ${min} đến ${max}`);
+  }
+  return number;
+}
+
+function parseId(value, name) {
+  const id = toInteger(value);
+  if (!(id >= 1 && id <= MAX_INT)) {
+    throw new HttpError(400, `${name} phải là số nguyên dương`);
+  }
+  return id;
+}
+
+function validateOrder(body) {
+  const { productId, quantity } = body ?? {};
+  return {
+    productId: parseId(productId, 'productId'),
+    quantity: quantity === undefined ? 1 : parseInteger(quantity, 'quantity', 1, MAX_ORDER_QUANTITY),
+  };
+}
 
 const app = express();
-const port = process.env.PORT || 5000;
 
-// Cấu hình Connection Pool kết nối PostgreSQL trong mạng nội bộ
-const pool = new Pool({
-    host: process.env.DB_HOST || 'database',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-    database: process.env.DB_NAME || 'ecommerce_db',
-    user: process.env.DB_USER || 'ecommerce_user',
-    password: process.env.DB_PASSWORD || 'ecommerce_secret',
-    max: 20, // Số kết nối tối đa trong Pool
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-});
+app.set('trust proxy', 1); // chạy sau Nginx: lấy IP thật của khách từ X-Forwarded-For
+app.use(helmet());
+// Log mỗi request kèm thời gian xử lý để giám sát; bỏ qua /health vì Docker gọi liên tục
+app.use(morgan('short', { skip: (req) => req.path === '/health' }));
+app.use(express.json({ limit: '10kb' }));
 
-app.use(cors());
-app.use(express.json());
-
-// Middleware ghi log request để phục vụ minh chứng nghiệm thu KT1
-app.use((req, res, next) => {
-    const start = Date.now();
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`);
-    });
-    next();
-});
-
-// ==========================================
-// 1. ENDPOINT KIỂM TRA SỨC KHỎE (HEALTH CHECK)
-// ==========================================
 app.get('/health', async (req, res) => {
-    try {
-        await pool.query('SELECT 1');
-        return res.status(200).json({
-            status: 'UP',
-            timestamp: new Date().toISOString(),
-            service: 'ecommerce-backend',
-            database: 'CONNECTED'
-        });
-    } catch (error) {
-        return res.status(503).json({
-            status: 'DOWN',
-            timestamp: new Date().toISOString(),
-            error: error.message
-        });
-    }
+  try {
+    await pool.query('SELECT 1');
+    res.json({
+      status: 'UP',
+      service: 'ecommerce-backend',
+      database: 'CONNECTED',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(503).json({ status: 'DOWN', database: 'DISCONNECTED', timestamp: new Date().toISOString() });
+  }
 });
 
-// ==========================================
-// 2. TÁC VỤ ĐỌC: LẤY DANH MỤC SẢN PHẨM (YC2, YC3, KT1)
-// ==========================================
 app.get('/api/products', async (req, res) => {
-    try {
-        const result = await pool.query(
-            'SELECT id, name, price, stock, created_at FROM products ORDER BY id ASC LIMIT 20;'
-        );
-        return res.status(200).json({
-            status: 'success',
-            total: result.rows.length,
-            data: result.rows
-        });
-    } catch (error) {
-        console.error('Lỗi truy vấn danh mục sản phẩm:', error);
-        return res.status(500).json({
-            status: 'error',
-            message: 'Lỗi truy vấn cơ sở dữ liệu'
-        });
-    }
+  const page = req.query.page === undefined ? 1 : parseInteger(req.query.page, 'page', 1, MAX_PAGE);
+  const limit = req.query.limit === undefined ? 20 : parseInteger(req.query.limit, 'limit', 1, 100);
+
+  const [items, count] = await Promise.all([
+    pool.query(`SELECT ${PRODUCT_COLUMNS} FROM products ORDER BY id LIMIT $1 OFFSET $2`, [limit, (page - 1) * limit]),
+    pool.query('SELECT COUNT(*) AS total FROM products'),
+  ]);
+  const totalItems = count.rows[0].total;
+
+  res.json({
+    status: 'success',
+    total: items.rowCount,
+    data: items.rows,
+    pagination: { page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
+  });
 });
 
-// ==========================================
-// 3. TÁC VỤ GHI: ĐẶT HÀNG & TRỪ KHO NGUYÊN TỬ (YC2, YC3, KT1)
-// ==========================================
+app.get('/api/products/:id', async (req, res) => {
+  const id = parseId(req.params.id, 'id');
+  const result = await pool.query(`SELECT ${PRODUCT_COLUMNS} FROM products WHERE id = $1`, [id]);
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy sản phẩm.');
+  }
+  res.json({ status: 'success', data: result.rows[0] });
+});
+
 app.post('/api/orders', async (req, res) => {
-    const { productId, quantity } = req.body;
+  const { productId, quantity } = validateOrder(req.body);
+  const client = await pool.connect();
 
-    // Kiểm tra tính hợp lệ của tham số đầu vào
-    const pId = parseInt(productId, 10);
-    const qty = parseInt(quantity, 10) || 1;
+  try {
+    await client.query('BEGIN');
 
-    if (isNaN(pId) || pId <= 0 || qty <= 0) {
-        return res.status(400).json({
-status: 'fail',
-            message: 'Mã sản phẩm (productId) hoặc số lượng (quantity) không hợp lệ.'
-        });
+    // Trừ kho nguyên tử: chỉ thành công khi còn đủ hàng, dòng sản phẩm bị khóa đến khi COMMIT,
+    // nên nhiều khách đặt cùng lúc cũng không bán vượt tồn kho.
+    const updated = await client.query(
+      'UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING id, name, price, stock',
+      [quantity, productId]
+    );
+    if (updated.rowCount === 0) {
+      const exists = await client.query('SELECT 1 FROM products WHERE id = $1', [productId]);
+      throw exists.rowCount === 0
+        ? new HttpError(404, 'Không tìm thấy sản phẩm.')
+        : new HttpError(409, 'Sản phẩm đã hết hàng hoặc số lượng tồn kho không đủ để đáp ứng.');
     }
 
-    const client = await pool.connect();
-    try {
-        // Mở Database Transaction nguyên tử (Atomic)
-        await client.query('BEGIN');
+    const product = updated.rows[0];
+    const inserted = await client.query(
+      'INSERT INTO orders (product_id, quantity, total_price) VALUES ($1, $2, $3) RETURNING id, total_price, created_at',
+      [productId, quantity, product.price * quantity]
+    );
 
-        // BƯỚC 1: Trừ kho an toàn có điều kiện (Chống bán âm kho - Race condition)
-        const updateResult = await client.query(
-            'UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING id, name, price, stock;',
-            [qty, pId]
-        );
+    await client.query('COMMIT');
 
-        // Nếu rows.length === 0 có nghĩa là sản phẩm không tồn tại hoặc không đủ hàng
-        if (updateResult.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({
-                status: 'fail',
-                message: 'Sản phẩm đã hết hàng hoặc số lượng tồn kho không đủ để đáp ứng.'
-            });
-        }
-
-        const product = updateResult.rows[0];
-        const totalPrice = Number(product.price) * qty;
-
-        // BƯỚC 2: Ghi nhận đơn hàng vào bảng orders
-        const insertOrderResult = await client.query(
-            'INSERT INTO orders (product_id, quantity, total_price, status) VALUES ($1, $2, $3, $4) RETURNING id, created_at;',
-            [pId, qty, totalPrice, 'CREATED']
-        );
-
-        // Hoàn tất Transaction
-        await client.query('COMMIT');
-
-        const order = insertOrderResult.rows[0];
-        return res.status(201).json({
-            status: 'success',
-            message: 'Tạo đơn hàng thành công!',
-            orderId: order.id,
-            product: {
-                id: product.id,
-                name: product.name,
-                remainingStock: product.stock
-            },
-            quantity: qty,
-            totalPrice: totalPrice,
-            createdAt: order.created_at
-        });
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Lỗi trong quá trình tạo đơn hàng:', error);
-        return res.status(500).json({
-            status: 'error',
-            message: 'Lỗi máy chủ khi xử lý đơn hàng.'
-        });
-    } finally {
-        client.release();
-    }
+    const order = inserted.rows[0];
+    res.status(201).json({
+      status: 'success',
+      message: 'Tạo đơn hàng thành công!',
+      orderId: order.id,
+      product: { id: product.id, name: product.name, remainingStock: product.stock },
+      quantity,
+      totalPrice: order.total_price,
+      createdAt: order.created_at,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
-// ==========================================
-// 4. API BỔ TRỢ: XEM DANH SÁCH ĐƠN HÀNG ĐÃ TẠO
-// ==========================================
 app.get('/api/orders', async (req, res) => {
-    try {
-        const result = await pool.query(
-            'SELECT o.id, o.quantity, o.total_price, o.status, o.created_at, p.name AS product_name ' +
-            'FROM orders o JOIN products p ON o.product_id = p.id ' +
-            'ORDER BY o.id DESC LIMIT 20;'
-        );
-        return res.status(200).json({
-            status: 'success',
-            total: result.rows.length,
-            data: result.rows
-        });
-    } catch (error) {
-return res.status(500).json({ status: 'error', message: error.message });
-    }
+  const result = await pool.query(
+    `SELECT o.id, o.quantity, o.total_price, o.status, o.created_at, p.name AS product_name
+     FROM orders o JOIN products p ON o.product_id = p.id
+     ORDER BY o.id DESC LIMIT 20`
+  );
+  res.json({ status: 'success', total: result.rowCount, data: result.rows });
 });
 
-app.listen(port, () => {
-    console.log(`Backend Server đang chạy tại cổng ${port}`);
+app.use((req, res) => {
+  res.status(404).json({ status: 'fail', message: 'Không tìm thấy đường dẫn.' });
 });
+
+// Express 5 tự chuyển lỗi của handler async vào đây
+app.use((err, req, res, next) => {
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ status: 'fail', message: err.message });
+  }
+  // Lỗi từ express.json(): JSON sai cú pháp, body quá lớn...
+  if (err.expose && err.status < 500) {
+    return res.status(err.status).json({ status: 'fail', message: 'Dữ liệu gửi lên không hợp lệ.' });
+  }
+  console.error(err);
+  res.status(500).json({ status: 'error', message: 'Lỗi máy chủ.' });
+});
+
+const server = app.listen(PORT, () => {
+  console.log(`Backend đang chạy tại cổng ${PORT}`);
+});
+
+// Giữ kết nối lâu hơn keepalive của Nginx để tránh lỗi 502 khi Nginx tái sử dụng kết nối đã bị đóng
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
+// Dừng êm khi Docker gửi SIGTERM (scale giảm, cập nhật): ngừng nhận request mới,
+// xử lý xong request đang chạy rồi đóng pool
+function shutdown(signal) {
+  console.log(`Nhận ${signal}, đang dừng backend...`);
+  server.close(() => {
+    pool.end().then(() => process.exit(0));
+  });
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
