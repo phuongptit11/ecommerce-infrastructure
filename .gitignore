@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables
+.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Database dump files (tránh đẩy file backup nặng lên GitHub)
+*.sql.gz
+*.tar
+backup/
+
+# OS specific files
+.DS_Store
+Thumbs.db

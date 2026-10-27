@@ -1,0 +1,22 @@
+-- Nạp dữ liệu mẫu ban đầu (20 sản phẩm)
+INSERT INTO products (name, price, stock) VALUES
+('Bàn phím cơ không dây AKKO 3087', 1250000, 50),
+('Chuột Gaming Logitech G502 Hero', 890000, 35),
+('Tai nghe chống ồn Sony WH-1000XM5', 6490000, 15),
+('Màn hình Dell UltraSharp 27 inch 4K', 11200000, 10),
+('Giá đỡ laptop nhôm tản nhiệt', 320000, 100),
+('Webcam Full HD 1080p 60fps', 750000, 25),
+('Đèn bàn thông minh LED chống cận', 450000, 40),
+('Ổ cứng di động SSD Samsung T7 1TB', 2350000, 20),
+('Cáp sạc nhanh Type-C 100W Anker', 190000, 80),
+('Củ sạc GaN 65W 3 cổng', 490000, 60),
+('Hub chuyển đổi USB-C 8 trong 1', 620000, 30),
+('Loa Bluetooth JBL Flip 6', 2490000, 18),
+('Micro thu âm USB Podcast', 1150000, 12),
+('Ghế công thái học Ergonomic Pro', 3800000, 8),
+('Bàn làm việc nâng hạ tự động', 7500000, 5),
+('Miếng lót chuột cỡ lớn 90x40cm', 120000, 150),
+('Quạt mini để bàn tích điện', 180000, 45),
+('Pin sạc dự phòng 20.000mAh', 550000, 40),
+('Túi chống sốc laptop 15.6 inch', 220000, 70),
+('Sản phẩm thử nghiệm Flash Sale giới hạn', 99000, 5);

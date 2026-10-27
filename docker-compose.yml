@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # ========================================================
+  # TẦNG 1: TẦNG WEB (NGINX - VÙNG MẠNG PUBLIC)
+  # ========================================================
+  nginx:
+    image: nginx:alpine
+    container_name: ecommerce_nginx
+    restart: unless-stopped
+    ports:
+      # Chỉ có Nginx mở cổng ra bên ngoài máy chủ
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    networks:
+      - public_net
+      - private_net
+
+  # ========================================================
+  # TẦNG 2: TẦNG ỨNG DỤNG (NODE.JS API - VÙNG MẠNG NỘI BỘ PRIVATE)
+  # ========================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ecommerce_backend
+    restart: unless-stopped
+    environment:
+      - PORT=5000
+      - DB_HOST=database
+      - DB_PORT=5432
+      - DB_NAME=ecommerce_db
+      - DB_USER=ecommerce_user
+      - DB_PASSWORD=ecommerce_secret
+    depends_on:
+      - database
+    networks:
+      - private_net
+    # Không expose cổng ra host, chỉ trao đổi qua mạng private_net
+
+  # ========================================================
+  # TẦNG 3: TẦNG DỮ LIỆU (POSTGRESQL - VÙNG MẠNG NỘI BỘ PRIVATE)
+  # ========================================================
+  database:
+    image: postgres:15-alpine
+    container_name: ecommerce_database
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=ecommerce_db
+      - POSTGRES_USER=ecommerce_user
+      - POSTGRES_PASSWORD=ecommerce_secret
+    ports:
+      # Mở cổng kết nối 127.0.0.1 để DBeaver trên máy cá nhân có thể xem dữ liệu
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Volume riêng biệt đảm bảo dữ liệu không bị mất khi tắt container (Stateful)
+      - pg_data:/var/lib/postgresql/data
+      # Tự động nạp bảng và dữ liệu mẫu khi CSDL khởi tạo lần đầu
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    networks:
+      - private_net
+
+networks:
+  # Vùng mạng công khai tiếp nhận truy cập từ bên ngoài
+  public_net:
+    driver: bridge
+  # Vùng mạng nội bộ cách ly an toàn cho App và Database
+  private_net:
+    driver: bridge
+
+volumes:
+  # Volume lưu trữ đĩa cứng vật lý cho PostgreSQL
+  pg_data:
+    driver: local

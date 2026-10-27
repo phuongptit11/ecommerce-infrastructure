@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hạ Tầng TMĐT - Demo 3 Tầng (Đề tài 07)</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+        }
+        h1 { margin: 0; font-size: 20px; color: var(--primary); }
+        .badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .badge-success { background: #dcfce7; color: var(--success); }
+        .badge-danger { background: #fee2e2; color: var(--danger); }
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            font-size: 16px;
+            margin-top: 0;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        th { background: #f1f5f9; font-weight: 600; }
+        .stock-tag {
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+        .stock-ok { background: #e0f2fe; color: #0284c7; }
+        .stock-low { background: #fef3c7; color: #d97706; }
+        .stock-empty { background: #fee2e2; color: var(--danger); }
+        button {
+            cursor: pointer;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+button:hover { opacity: 0.9; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-buy { background: var(--success); color: white; font-size: 12px; padding: 6px 10px; }
+        .form-group { margin-bottom: 14px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+        input {
+            width: 100%;
+            padding: 8px 12px;
+            box-sizing: border-box;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .log-box {
+            background: #0f172a;
+            color: #38bdf8;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            height: 180px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div>
+            <h1>HẠ TẦNG TMĐT (ĐỀ TÀI 07)</h1>
+            <small style="color: #64748b;">Mô hình 3 tầng: Nginx (Web) &rarr; Node.js (App) &rarr; PostgreSQL (DB)</small>
+        </div>
+        <div id="healthBadge" class="badge badge-success">Đang kiểm tra kết nối...</div>
+    </header>
+
+    <div class="grid">
+        <!-- CỘT 1: TÁC VỤ ĐỌC DANH MỤC -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h2 style="margin: 0; border: none; padding: 0;">1. Danh Mục Sản Phẩm (Tác vụ Đọc)</h2>
+                <button class="btn-primary" onclick="loadProducts()">Tải lại (F5)</button>
+            </div>
+            <table id="productTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">ID</th>
+                        <th>Tên sản phẩm</th>
+                        <th>Giá bán</th>
+                        <th>Kho</th>
+                        <th style="width: 70px;">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="productList">
+                    <tr><td colspan="5" style="text-align: center;">Đang tải dữ liệu...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- CỘT 2: TÁC VỤ GHI TẠO ĐƠN HÀNG -->
+        <div>
+            <div class="card" style="margin-bottom: 20px;">
+                <h2>2. Đặt Hàng Giả Lập (Tác vụ Ghi)</h2>
+                <div class="form-group">
+                    <label>Mã sản phẩm (Product ID):</label>
+                    <input type="number" id="orderProductId" value="1" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Số lượng đặt mua:</label>
+<input type="number" id="orderQuantity" value="1" min="1">
+                </div>
+                <button class="btn-primary" style="width: 100%;" onclick="submitOrder()">Tạo đơn hàng (Trừ kho nguyên tử)</button>
+            </div>
+
+            <div class="card">
+                <h2>Nhật Ký Phản Hồi API (Live Log)</h2>
+                <div id="logConsole" class="log-box">[Hệ thống] Sẵn sàng thực hiện kiểm thử KT1...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const logConsole = document.getElementById('logConsole');
+
+    function log(msg) {
+        const time = new Date().toLocaleTimeString();
+        logConsole.innerText = `[${time}] ${msg}\n` + logConsole.innerText;
+    }
+
+    // 1. Kiểm tra trạng thái hệ thống
+    async function checkHealth() {
+        const badge = document.getElementById('healthBadge');
+        try {
+            const res = await fetch('/health');
+            const data = await res.json();
+            if (res.ok && data.status === 'UP') {
+                badge.className = 'badge badge-success';
+                badge.innerText = `Hệ thống: ONLINE | CSDL: ${data.database}`;
+            } else {
+                badge.className = 'badge badge-danger';
+                badge.innerText = 'Lỗi kết nối cơ sở dữ liệu';
+            }
+        } catch (err) {
+            badge.className = 'badge badge-danger';
+            badge.innerText = 'Không kết nối được Nginx';
+        }
+    }
+
+    // 2. Tác vụ Đọc: GET /api/products
+    async function loadProducts() {
+        const tbody = document.getElementById('productList');
+        try {
+            const res = await fetch('/api/products');
+            const result = await res.json();
+            if (res.ok && result.data) {
+                tbody.innerHTML = '';
+                result.data.forEach(p => {
+                    let stockClass = 'stock-ok';
+                    if (p.stock === 0) stockClass = 'stock-empty';
+                    else if (p.stock <= 5) stockClass = 'stock-low';
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${p.id}</td>
+                        <td><b>${p.name}</b></td>
+                        <td>${Number(p.price).toLocaleString('vi-VN')} đ</td>
+                        <td><span class="stock-tag ${stockClass}">${p.stock}</span></td>
+                        <td><button class="btn-buy" onclick="quickBuy(${p.id})">Mua</button></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                log(`GET /api/products -> Thành công, tải ${result.data.length} sản phẩm.`);
+            }
+        } catch (err) {
+            log(`Lỗi tải danh mục: ${err.message}`);
+        }
+    }
+
+    // 3. Tác vụ Ghi: POST /api/orders
+    async function submitOrder() {
+        const productId = document.getElementById('orderProductId').value;
+const quantity = document.getElementById('orderQuantity').value;
+
+        try {
+            const res = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ productId, quantity })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                log(`POST /api/orders -> THÀNH CÔNG! Mã đơn: #${data.orderId}, Tồn kho còn: ${data.product.remainingStock}`);
+                loadProducts(); // Tải lại bảng để cập nhật tồn kho mới ngay lập tức
+            } else {
+                log(`POST /api/orders -> THẤT BẠI (${res.status}): ${data.message}`);
+            }
+        } catch (err) {
+            log(`Lỗi đặt hàng: ${err.message}`);
+        }
+    }
+
+    function quickBuy(id) {
+        document.getElementById('orderProductId').value = id;
+        document.getElementById('orderQuantity').value = 1;
+        submitOrder();
+    }
+
+    // Khởi động ban đầu
+    checkHealth();
+    loadProducts();
+    setInterval(checkHealth, 15000); // Tự động kiểm tra sau mỗi 15s
+</script>
+
+</body>
+</html>
