@@ -1,4 +1,4 @@
-# Khởi tạo bảng danh mục sản phẩm (products)
+-- Khởi tạo bảng danh mục sản phẩm (products)
 CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
