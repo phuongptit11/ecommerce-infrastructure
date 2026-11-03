@@ -115,3 +115,60 @@ Content-Type: application/json
   "gender": "nam",
   "birthday": "1998-05-15"
 }
+
+### 16. Đăng bán sản phẩm mới (Kênh người bán, cần đăng nhập)
+# @name createProduct
+POST {{baseUrl}}/api/products
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Tai nghe True Wireless AuraBuds Pro",
+  "categoryId": 4,
+  "price": 1290000,
+  "originalPrice": 1590000,
+  "stock": 40,
+  "imageUrl": "/images/products/sony-wh1000xm5-2.jpg",
+  "description": "Chống ồn chủ động, pin 30 giờ, sạc nhanh USB-C."
+}
+
+### Lưu ID sản phẩm vừa đăng
+@newProductId = {{createProduct.response.body.data.id}}
+
+### 17. Sửa sản phẩm do mình đăng bán
+PUT {{baseUrl}}/api/products/{{newProductId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Tai nghe True Wireless AuraBuds Pro (bản 2026)",
+  "categoryId": 4,
+  "price": 1190000,
+  "originalPrice": 1590000,
+  "stock": 35
+}
+
+### 18. Danh sách sản phẩm tôi đang bán
+GET {{baseUrl}}/api/user/products
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 19. Xóa sản phẩm do mình đăng bán (409 nếu đã có đơn hàng)
+DELETE {{baseUrl}}/api/products/{{newProductId}}
+Authorization: Bearer {{authToken}}
+
+### 20. Sửa sản phẩm của AuraMall (không phải của mình) -> 403
+PUT {{baseUrl}}/api/products/1
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "Thử sửa sản phẩm người khác",
+  "categoryId": 10,
+  "price": 1000000,
+  "stock": 1
+}
+
+### 21. Đặc tả OpenAPI (giao diện Swagger: {{baseUrl}}/api/docs/)
+GET {{baseUrl}}/api/docs/openapi.json
+Accept: application/json

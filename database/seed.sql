@@ -52,8 +52,8 @@ INSERT INTO products (
     320,
     1240,
     false,
-    'https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=600&q=80", "https://images.unsplash.com/photo-1618384887929-16ec33fab9ef?auto=format&fit=crop&w=600&q=80", "https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/akko-3087.jpg',
+    '["/images/products/akko-3087.jpg", "/images/products/akko-3087-2.jpg", "/images/products/akko-3087-3.jpg"]'::jsonb,
     'Bàn phím cơ không dây AKKO 3087 v2 sử dụng switch độc quyền Akko CS Switch, keycap PBT Doubleshot bền bỉ, kết nối đa chế độ Bluetooth 5.0 và Type-C ổn định.'
 ),
 (
@@ -69,8 +69,8 @@ INSERT INTO products (
     580,
     2400,
     true,
-    'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=600&q=80", "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/logitech-g502.jpg',
+    '["/images/products/logitech-g502.jpg", "/images/products/logitech-g502-2.jpg", "/images/products/logitech-g502-3.jpg"]'::jsonb,
     'Cảm biến HERO 25K tiên tiến, 11 nút có thể lập trình, hệ thống tạ điều chỉnh trọng lượng linh hoạt, đèn nền RGB LIGHTSYNC đồng bộ.'
 ),
 (
@@ -86,8 +86,8 @@ INSERT INTO products (
     195,
     850,
     false,
-    'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80", "https://images.unsplash.com/photo-1484704849700-f032a568e944?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/sony-wh1000xm5.jpg',
+    '["/images/products/sony-wh1000xm5.jpg", "/images/products/sony-wh1000xm5-2.jpg"]'::jsonb,
     'Công nghệ chống ồn hàng đầu thế giới với bộ xử lý Integrated Processor V1, thời lượng pin 30 giờ, micro đa hướng đàm thoại siêu nét.'
 ),
 (
@@ -103,8 +103,8 @@ INSERT INTO products (
     110,
     420,
     false,
-    'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=600&q=80", "https://images.unsplash.com/photo-1585792180666-f7347c490ee2?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/dell-ultrasharp-27.jpg',
+    '["/images/products/dell-ultrasharp-27.jpg", "/images/products/dell-ultrasharp-27-2.jpg"]'::jsonb,
     'Tấm nền IPS Black độ tương phản 2000:1, độ phủ màu 100% sRGB và 98% DCI-P3, cổng kết nối Type-C cấp nguồn 90W tiện lợi.'
 ),
 (
@@ -120,8 +120,8 @@ INSERT INTO products (
     420,
     3100,
     false,
-    'https://images.unsplash.com/photo-1586953208448-b95a79798f07?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1586953208448-b95a79798f07?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/gia-do-laptop.jpg',
+    '["/images/products/gia-do-laptop.jpg"]'::jsonb,
     'Chất liệu hợp kim nhôm nguyên khối, đệm silicon chống trượt và chống trầy xước, tùy chỉnh 6 cấp độ cao hỗ trợ tư thế ngồi chuẩn.'
 ),
 (
@@ -137,8 +137,8 @@ INSERT INTO products (
     88,
     620,
     false,
-    'https://images.unsplash.com/photo-1588508065123-287b28e013da?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1588508065123-287b28e013da?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/webcam-1080p.jpg',
+    '["/images/products/webcam-1080p.jpg", "/images/products/webcam-1080p-2.jpg"]'::jsonb,
     'Độ phân giải Full HD 1080p mượt mà với tốc độ 60 khung hình/giây, tự động lấy nét nhanh, tích hợp mic kép lọc ồn thông minh.'
 ),
 (
@@ -154,8 +154,8 @@ INSERT INTO products (
     140,
     980,
     false,
-    'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/den-ban-led.jpg',
+    '["/images/products/den-ban-led.jpg", "/images/products/den-ban-led-2.jpg"]'::jsonb,
     'Chỉ số hoàn màu Ra>95 bảo vệ thị lực tối đa, điều khiển cảm ứng trượt mượt mà, hẹn giờ tắt thông minh và kết nối ứng dụng điện thoại.'
 ),
 (
@@ -171,8 +171,8 @@ INSERT INTO products (
     210,
     1150,
     false,
-    'https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/samsung-t7.jpg',
+    '["/images/products/samsung-t7.jpg", "/images/products/samsung-t7-2.jpg", "/images/products/samsung-t7-3.jpg"]'::jsonb,
     'Tốc độ đọc/ghi lên tới 1.050MB/s chuẩn NVMe, vỏ nhôm nguyên khối chống sốc rơi vỡ tới 2 mét, bảo mật vân tay và mã hóa phần cứng AES 256-bit.'
 ),
 (
@@ -188,8 +188,8 @@ INSERT INTO products (
     890,
     5600,
     true,
-    'https://images.unsplash.com/photo-1541689592655-f5f52825a3b8?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1541689592655-f5f52825a3b8?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/cap-usb-c-100w.jpg',
+    '["/images/products/cap-usb-c-100w.jpg", "/images/products/cap-usb-c-100w-2.jpg"]'::jsonb,
     'Hỗ trợ công suất sạc Power Delivery 100W cho laptop và điện thoại, dây bọc dù bện nylon siêu bền chịu gập uốn hơn 25.000 lần.'
 ),
 (
@@ -205,8 +205,8 @@ INSERT INTO products (
     330,
     1800,
     true,
-    'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/cu-sac-gan-65w.jpg',
+    '["/images/products/cu-sac-gan-65w.jpg", "/images/products/cu-sac-gan-65w-2.jpg"]'::jsonb,
     'Công nghệ bán dẫn Gallium Nitride (GaN) giúp củ sạc nhỏ gọn hơn 50%, trang bị 2 cổng USB-C và 1 USB-A, sạc cùng lúc 3 thiết bị an toàn.'
 ),
 (
@@ -222,8 +222,8 @@ INSERT INTO products (
     170,
     920,
     false,
-    'https://images.unsplash.com/photo-1544652478-6653e09f18a2?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1544652478-6653e09f18a2?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/hub-usb-c-8in1.jpg',
+    '["/images/products/hub-usb-c-8in1.jpg", "/images/products/hub-usb-c-8in1-2.jpg"]'::jsonb,
     'Mở rộng kết nối toàn diện: HDMI 4K 60Hz, sạc pass-through PD 100W, khe cắm thẻ SD/TF, 3 cổng USB 3.0 và cổng mạng LAN Gigabit.'
 ),
 (
@@ -239,8 +239,8 @@ INSERT INTO products (
     240,
     1100,
     false,
-    'https://images.unsplash.com/photo-1545454675-3531b543be5d?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1545454675-3531b543be5d?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/jbl-flip-6.jpg',
+    '["/images/products/jbl-flip-6.jpg", "/images/products/jbl-flip-6-2.jpg"]'::jsonb,
     'Hệ thống loa 2 chiều cho âm bass đầy uy lực và dải cao trong trẻo, chuẩn chống nước chống bụi IP67, pin sử dụng liên tục 12 giờ.'
 ),
 (
@@ -256,8 +256,8 @@ INSERT INTO products (
     75,
     380,
     false,
-    'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/micro-podcast.jpg',
+    '["/images/products/micro-podcast.jpg"]'::jsonb,
     'Mô hình thu âm Cardioid tập trung bắt trọn giọng nói phía trước, màng lọc pop filter tích hợp loại bỏ tạp âm thở, cắm là chạy ngay không cần driver.'
 ),
 (
@@ -273,8 +273,8 @@ INSERT INTO products (
     95,
     460,
     false,
-    'https://images.unsplash.com/photo-1580481077195-c328ad4f3922?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1580481077195-c328ad4f3922?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/ghe-cong-thai-hoc.jpg',
+    '["/images/products/ghe-cong-thai-hoc.jpg", "/images/products/ghe-cong-thai-hoc-2.jpg", "/images/products/ghe-cong-thai-hoc-3.jpg"]'::jsonb,
     'Tựa lưng thiết kế cánh bướm ôm sát cột sống thắt lưng, lưới thoáng khí nhập khẩu Hàn Quốc không bí mồ hôi, kê tay 3D nâng hạ xoay góc linh hoạt.'
 ),
 (
@@ -290,8 +290,8 @@ INSERT INTO products (
     42,
     210,
     false,
-    'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/ban-nang-ha.jpg',
+    '["/images/products/ban-nang-ha.jpg"]'::jsonb,
     'Động cơ kép nâng hạ êm ái tải trọng đến 120kg, bộ điều khiển nhớ 4 vị trí chiều cao ưa thích, cảm biến chống va chạm tự động ngắt khi gặp vật cản.'
 ),
 (
@@ -307,8 +307,8 @@ INSERT INTO products (
     650,
     4800,
     true,
-    'https://images.unsplash.com/photo-1629429408209-1ab9133e0b24?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1629429408209-1ab9133e0b24?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/lot-chuot-xl.jpg',
+    '["/images/products/lot-chuot-xl.jpg", "/images/products/lot-chuot-xl-2.jpg"]'::jsonb,
     'Bề mặt vải dệt micro-weave siêu mịn giúp rê chuột chuẩn xác từng pixel, đáy cao su tự nhiên chống trượt bám dính chắc chắn trên mọi mặt bàn.'
 ),
 (
@@ -324,8 +324,8 @@ INSERT INTO products (
     120,
     890,
     false,
-    'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/quat-mini.jpg',
+    '["/images/products/quat-mini.jpg", "/images/products/quat-mini-2.jpg", "/images/products/quat-mini-3.jpg"]'::jsonb,
     'Pin 4000mAh hoạt động liên tục 8 tiếng, 4 chế độ gió tuỳ chỉnh êm ái độ ồn dưới 20dB, xoay linh hoạt 120 độ làm mát bàn làm việc.'
 ),
 (
@@ -341,8 +341,8 @@ INSERT INTO products (
     310,
     2150,
     false,
-    'https://images.unsplash.com/photo-1609592424109-dd9892f1b177?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1609592424109-dd9892f1b177?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/pin-du-phong-20000.jpg',
+    '["/images/products/pin-du-phong-20000.jpg", "/images/products/pin-du-phong-20000-2.jpg"]'::jsonb,
     'Lõi pin Polymer cao cấp dung lượng thực 20.000mAh, sạc nhanh chuẩn PD 22.5W hai chiều, màn hình LED hiển thị chính xác % pin còn lại.'
 ),
 (
@@ -358,8 +358,8 @@ INSERT INTO products (
     180,
     1400,
     false,
-    'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/tui-chong-soc-laptop.jpg',
+    '["/images/products/tui-chong-soc-laptop.jpg"]'::jsonb,
     'Lớp đệm mút bong bóng 360 độ bảo vệ góc máy chống va đập toàn diện, vải Polyester chống thấm nước mưa, nhiều ngăn phụ để chuột và sạc.'
 ),
 (
@@ -375,8 +375,8 @@ INSERT INTO products (
     450,
     3200,
     true,
-    'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/flash-sale-test.jpg',
+    '["/images/products/flash-sale-test.jpg"]'::jsonb,
     'Sản phẩm đặc biệt phục vụ kiểm thử luồng Flash Sale chịu tải cao (k6). Giới hạn số lượng cực ít trong kho để kiểm tra cơ chế chống bán âm (overselling).'
 ),
 (
@@ -392,8 +392,8 @@ INSERT INTO products (
     150,
     890,
     false,
-    'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/auraphone-pro.jpg',
+    '["/images/products/auraphone-pro.jpg"]'::jsonb,
     'Vi xử lý 4nm đỉnh cao, màn hình Dynamic AMOLED 120Hz mượt mà, cụm 3 camera 108MP chống rung OIS cho khả năng quay chụp chuyên nghiệp.'
 ),
 (
@@ -409,8 +409,8 @@ INSERT INTO products (
     340,
     1850,
     true,
-    'https://images.unsplash.com/photo-1581655353564-df123a1eb820?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1581655353564-df123a1eb820?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/ao-polo.jpg',
+    '["/images/products/ao-polo.jpg", "/images/products/ao-polo-2.jpg"]'::jsonb,
     'Chất liệu 100% Cotton chải kỹ tự nhiên, thấm hút mồ hôi tối ưu, form Regular Fit tôn dáng trẻ trung thanh lịch trong mọi hoàn cảnh.'
 ),
 (
@@ -426,8 +426,8 @@ INSERT INTO products (
     85,
     520,
     false,
-    'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/giay-aurasport.jpg',
+    '["/images/products/giay-aurasport.jpg"]'::jsonb,
     'Đế đệm khí êm ái hoàn trả lực nhạy bén, vải dệt Flyknit thoáng khí. (Sản phẩm mẫu có stock = 0 để kiểm tra giao diện nhãn Hết hàng & nút vô hiệu hóa).'
 ),
 (
@@ -443,8 +443,8 @@ INSERT INTO products (
     95,
     410,
     false,
-    'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
-    '["https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80"]'::jsonb,
+    '/images/products/aurawatch-ultra.jpg',
+    '["/images/products/aurawatch-ultra.jpg"]'::jsonb,
     'Khung titan siêu nhẹ, đo nhịp tim SpO2 liên tục 24/7, định vị GPS kép độc lập, hỗ trợ hơn 100 chế độ thể thao chuyên nghiệp và chống nước 5ATM.'
 )
 ON CONFLICT (id) DO UPDATE SET

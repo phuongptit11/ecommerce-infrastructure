@@ -4,7 +4,9 @@ const express = require('express');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const crypto = require('crypto');
+const swaggerUi = require('swagger-ui-express');
 const { Pool, types } = require('pg');
+const openapiSpec = require('./openapi');
 
 // Cột NUMERIC (giá tiền) và COUNT(*) mặc định được trả về dạng chuỗi, đổi sang Number để JSON trả về dạng số
 types.setTypeParser(types.builtins.NUMERIC, parseFloat);
@@ -14,6 +16,9 @@ const PORT = Number(process.env.PORT) || 5000;
 const MAX_INT = 2147483647; // giới hạn kiểu INT của PostgreSQL
 const MAX_PAGE = 100000;
 const MAX_ORDER_QUANTITY = 100;
+const MAX_PRICE = 9999999999; // giới hạn NUMERIC(12, 2)
+const MAX_STOCK = 1000000;
+const MAX_PRODUCT_IMAGES = 8;
 const JWT_SECRET = process.env.JWT_SECRET || 'auramall_jwt_secret_ecommerce_2026';
 
 // Connection pool PostgreSQL
@@ -150,6 +155,96 @@ function maskEmail(email) {
   const [local, domain] = email.split('@');
   if (local.length <= 2) return `${local}***@${domain}`;
   return `${local.substring(0, 2)}***@${domain}`;
+}
+
+// Bỏ dấu tiếng Việt để tạo slug: "Bàn phím cơ" -> "ban-phim-co"
+function slugify(text) {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 200);
+}
+
+// Chỉ nhận link ảnh http(s) hoặc ảnh có sẵn của hệ thống (/images/...), chặn javascript:, data:...
+function parseImageUrl(value, name) {
+  const url = typeof value === 'string' ? value.trim() : '';
+  if (url.length > 2048 || !(/^https?:\/\/[^\s"'<>]+$/i.test(url) || /^\/images\/[\w./-]+$/.test(url))) {
+    throw new HttpError(400, `${name} phải là đường dẫn ảnh http(s) hợp lệ.`);
+  }
+  return url;
+}
+
+// Kiểm tra dữ liệu form đăng bán / sửa sản phẩm
+async function validateProductInput(body) {
+  const { name, categoryId, price, originalPrice, stock, imageUrl, thumbnails, description } = body ?? {};
+
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  if (cleanName.length < 3 || cleanName.length > 255) {
+    throw new HttpError(400, 'Tên sản phẩm phải từ 3 đến 255 ký tự.');
+  }
+
+  const cleanCategoryId = parseId(categoryId, 'categoryId');
+  const category = await pool.query('SELECT 1 FROM categories WHERE id = $1', [cleanCategoryId]);
+  if (category.rowCount === 0) {
+    throw new HttpError(400, 'Danh mục sản phẩm không tồn tại.');
+  }
+
+  const cleanPrice = parseInteger(price, 'price', 1000, MAX_PRICE);
+  const hasOriginal = originalPrice !== undefined && originalPrice !== null && originalPrice !== '';
+  const cleanOriginal = hasOriginal ? parseInteger(originalPrice, 'originalPrice', 1000, MAX_PRICE) : null;
+  if (cleanOriginal !== null && cleanOriginal < cleanPrice) {
+    throw new HttpError(400, 'Giá gốc phải lớn hơn hoặc bằng giá bán.');
+  }
+
+  if (thumbnails !== undefined && !Array.isArray(thumbnails)) {
+    throw new HttpError(400, 'thumbnails phải là mảng đường dẫn ảnh.');
+  }
+  // Ảnh chính luôn đứng đầu dải ảnh, bỏ ảnh trùng
+  const images = [];
+  for (const url of [imageUrl, ...(thumbnails ?? [])]) {
+    if (url === undefined || url === null || url === '') continue;
+    const clean = parseImageUrl(url, 'Ảnh sản phẩm');
+    if (!images.includes(clean)) images.push(clean);
+  }
+  if (images.length > MAX_PRODUCT_IMAGES) {
+    throw new HttpError(400, `Tối đa ${MAX_PRODUCT_IMAGES} ảnh cho mỗi sản phẩm.`);
+  }
+
+  if (description !== undefined && description !== null && typeof description !== 'string') {
+    throw new HttpError(400, 'Mô tả sản phẩm không hợp lệ.');
+  }
+  const cleanDescription = (description ?? '').trim();
+  if (cleanDescription.length > 5000) {
+    throw new HttpError(400, 'Mô tả sản phẩm tối đa 5000 ký tự.');
+  }
+
+  return {
+    name: cleanName,
+    slug: slugify(cleanName),
+    categoryId: cleanCategoryId,
+    price: cleanPrice,
+    originalPrice: cleanOriginal,
+    discountPercent: cleanOriginal ? Math.round((1 - cleanPrice / cleanOriginal) * 100) : 0,
+    stock: parseInteger(stock, 'stock', 0, MAX_STOCK),
+    imageUrl: images[0] ?? null,
+    thumbnails: images,
+    description: cleanDescription || null,
+  };
+}
+
+// Sản phẩm phải tồn tại và do chính người dùng đăng bán
+async function findOwnProduct(productId, userId) {
+  const result = await pool.query('SELECT seller_id FROM products WHERE id = $1', [productId]);
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy sản phẩm.');
+  }
+  if (result.rows[0].seller_id !== userId) {
+    throw new HttpError(403, 'Bạn chỉ có thể thay đổi sản phẩm do chính mình đăng bán.');
+  }
 }
 
 const app = express();
@@ -372,7 +467,8 @@ const DETAILED_PRODUCT_COLUMNS = `
   p.id, p.name, p.slug, p.category_id, p.price, p.original_price,
   p.discount_percent, p.stock, p.rating, p.review_count, p.sold_count,
   p.is_flash_sale, p.image_url, p.thumbnails, p.description, p.created_at,
-  c.name AS category_name, c.slug AS category_slug
+  c.name AS category_name, c.slug AS category_slug,
+  p.seller_id, s.username AS seller_username
 `;
 
 app.get('/api/products', async (req, res) => {
@@ -471,6 +567,7 @@ app.get('/api/products', async (req, res) => {
     SELECT ${DETAILED_PRODUCT_COLUMNS}
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN users s ON p.seller_id = s.id
     ${whereSql}
     ORDER BY ${orderByClause}
     LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
@@ -491,21 +588,122 @@ app.get('/api/products', async (req, res) => {
   });
 });
 
-app.get('/api/products/:id', async (req, res) => {
-  const id = parseId(req.params.id, 'id');
+async function getProductById(id) {
   const result = await pool.query(
     `SELECT ${DETAILED_PRODUCT_COLUMNS}
      FROM products p
      LEFT JOIN categories c ON p.category_id = c.id
+     LEFT JOIN users s ON p.seller_id = s.id
      WHERE p.id = $1`,
     [id]
   );
+  return result.rows[0];
+}
 
-  if (result.rowCount === 0) {
+app.get('/api/products/:id', async (req, res) => {
+  const product = await getProductById(parseId(req.params.id, 'id'));
+  if (!product) {
     throw new HttpError(404, 'Không tìm thấy sản phẩm.');
   }
 
-  res.json({ status: 'success', data: result.rows[0] });
+  res.json({ status: 'success', data: product });
+});
+
+// ==========================================
+// 4b. ĐĂNG BÁN SẢN PHẨM (KÊNH NGƯỜI BÁN) - cần đăng nhập
+// ==========================================
+
+// Đăng bán sản phẩm mới
+app.post('/api/products', requireAuth, async (req, res) => {
+  const input = await validateProductInput(req.body);
+  const inserted = await pool.query(
+    `INSERT INTO products (
+       name, slug, category_id, price, original_price, discount_percent, stock,
+       rating, review_count, sold_count, image_url, thumbnails, description, seller_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, 0, $8, $9, $10, $11)
+     RETURNING id`,
+    [
+      input.name,
+      input.slug,
+      input.categoryId,
+      input.price,
+      input.originalPrice,
+      input.discountPercent,
+      input.stock,
+      input.imageUrl,
+      JSON.stringify(input.thumbnails),
+      input.description,
+      req.user.userId,
+    ]
+  );
+
+  res.status(201).json({
+    status: 'success',
+    message: 'Đăng bán sản phẩm thành công!',
+    data: await getProductById(inserted.rows[0].id),
+  });
+});
+
+// Sửa sản phẩm do mình đăng bán
+app.put('/api/products/:id', requireAuth, async (req, res) => {
+  const id = parseId(req.params.id, 'id');
+  await findOwnProduct(id, req.user.userId);
+  const input = await validateProductInput(req.body);
+
+  await pool.query(
+    `UPDATE products
+     SET name = $1, slug = $2, category_id = $3, price = $4, original_price = $5, discount_percent = $6,
+         stock = $7, image_url = $8, thumbnails = $9, description = $10
+     WHERE id = $11`,
+    [
+      input.name,
+      input.slug,
+      input.categoryId,
+      input.price,
+      input.originalPrice,
+      input.discountPercent,
+      input.stock,
+      input.imageUrl,
+      JSON.stringify(input.thumbnails),
+      input.description,
+      id,
+    ]
+  );
+
+  res.json({ status: 'success', message: 'Cập nhật sản phẩm thành công.', data: await getProductById(id) });
+});
+
+// Xóa sản phẩm do mình đăng bán (chỉ khi chưa phát sinh đơn hàng)
+app.delete('/api/products/:id', requireAuth, async (req, res) => {
+  const id = parseId(req.params.id, 'id');
+  await findOwnProduct(id, req.user.userId);
+
+  try {
+    await pool.query('DELETE FROM products WHERE id = $1', [id]);
+  } catch (err) {
+    if (err.code === '23503') {
+      // Vi phạm khóa ngoại: đơn hàng cũ vẫn tham chiếu tới sản phẩm này
+      throw new HttpError(409, 'Sản phẩm đã có đơn hàng nên không thể xóa. Hãy đặt tồn kho về 0 để ngừng bán.');
+    }
+    throw err;
+  }
+
+  res.json({ status: 'success', message: 'Đã xóa sản phẩm.' });
+});
+
+// Danh sách sản phẩm do người dùng hiện tại đăng bán
+app.get('/api/user/products', requireAuth, async (req, res) => {
+  const result = await pool.query(
+    `SELECT ${DETAILED_PRODUCT_COLUMNS}
+     FROM products p
+     LEFT JOIN categories c ON p.category_id = c.id
+     LEFT JOIN users s ON p.seller_id = s.id
+     WHERE p.seller_id = $1
+     ORDER BY p.created_at DESC, p.id DESC`,
+    [req.user.userId]
+  );
+
+  res.json({ status: 'success', total: result.rowCount, data: result.rows });
 });
 
 // ==========================================
@@ -1059,6 +1257,31 @@ app.patch('/api/user/addresses/:id/default', async (req, res) => {
 });
 
 // ==========================================
+// 7. TÀI LIỆU API (SWAGGER UI) - qua Nginx: http://localhost/api/docs/
+// ==========================================
+app.get('/api/docs/openapi.json', (req, res) => {
+  res.json(openapiSpec);
+});
+
+// Đường dẫn tương đối của CSS/JS Swagger cần dấu "/" ở cuối
+app.get('/api/docs', (req, res, next) => {
+  if (!req.originalUrl.split('?')[0].endsWith('/')) {
+    return res.redirect(301, '/api/docs/');
+  }
+  next();
+});
+
+app.use(
+  '/api/docs',
+  swaggerUi.serve,
+  swaggerUi.setup(openapiSpec, {
+    customSiteTitle: 'AuraMall API Docs',
+    customCss: '.swagger-ui .topbar { display: none }',
+    swaggerOptions: { persistAuthorization: true, validatorUrl: null },
+  })
+);
+
+// ==========================================
 // 404 & ERROR HANDLING MIDDLEWARE
 // ==========================================
 app.use((req, res) => {
@@ -1081,6 +1304,34 @@ const server = app.listen(PORT, () => {
   console.log(`Backend Auramall đang chạy tại cổng ${PORT}`);
   autoMigrateDatabase();
 });
+
+// Ảnh của 24 sản phẩm mẫu, lưu tại frontend/images/products để Nginx phục vụ trực tiếp (nguồn ảnh: CREDITS.md)
+const SEED_PRODUCT_IMAGES = {
+  1: ['akko-3087.jpg', 'akko-3087-2.jpg', 'akko-3087-3.jpg'],
+  2: ['logitech-g502.jpg', 'logitech-g502-2.jpg', 'logitech-g502-3.jpg'],
+  3: ['sony-wh1000xm5.jpg', 'sony-wh1000xm5-2.jpg'],
+  4: ['dell-ultrasharp-27.jpg', 'dell-ultrasharp-27-2.jpg'],
+  5: ['gia-do-laptop.jpg'],
+  6: ['webcam-1080p.jpg', 'webcam-1080p-2.jpg'],
+  7: ['den-ban-led.jpg', 'den-ban-led-2.jpg'],
+  8: ['samsung-t7.jpg', 'samsung-t7-2.jpg', 'samsung-t7-3.jpg'],
+  9: ['cap-usb-c-100w.jpg', 'cap-usb-c-100w-2.jpg'],
+  10: ['cu-sac-gan-65w.jpg', 'cu-sac-gan-65w-2.jpg'],
+  11: ['hub-usb-c-8in1.jpg', 'hub-usb-c-8in1-2.jpg'],
+  12: ['jbl-flip-6.jpg', 'jbl-flip-6-2.jpg'],
+  13: ['micro-podcast.jpg'],
+  14: ['ghe-cong-thai-hoc.jpg', 'ghe-cong-thai-hoc-2.jpg', 'ghe-cong-thai-hoc-3.jpg'],
+  15: ['ban-nang-ha.jpg'],
+  16: ['lot-chuot-xl.jpg', 'lot-chuot-xl-2.jpg'],
+  17: ['quat-mini.jpg', 'quat-mini-2.jpg', 'quat-mini-3.jpg'],
+  18: ['pin-du-phong-20000.jpg', 'pin-du-phong-20000-2.jpg'],
+  19: ['tui-chong-soc-laptop.jpg'],
+  20: ['flash-sale-test.jpg'],
+  21: ['auraphone-pro.jpg'],
+  22: ['ao-polo.jpg', 'ao-polo-2.jpg'],
+  23: ['giay-aurasport.jpg'],
+  24: ['aurawatch-ultra.jpg'],
+};
 
 // Tự động kiểm tra, bổ sung cột mới và nạp dữ liệu mẫu/hình ảnh nếu CSDL chưa có
 async function autoMigrateDatabase() {
@@ -1130,6 +1381,8 @@ async function autoMigrateDatabase() {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS thumbnails JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_id INT;
+      CREATE INDEX IF NOT EXISTS idx_products_seller_id ON products(seller_id);
 
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_code VARCHAR(50);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INT;
@@ -1190,51 +1443,61 @@ async function autoMigrateDatabase() {
       `);
     }
 
-    // 3. Cập nhật hình ảnh và thông tin mở rộng cho sản phẩm
+    // 3. Cập nhật thông tin mở rộng cho sản phẩm (CSDL cũ từ KT1 chưa có ảnh và danh mục)
     const prodImgCheck = await pool.query('SELECT COUNT(*) AS total FROM products WHERE image_url IS NOT NULL');
     if (Number(prodImgCheck.rows[0].total) < 20) {
       const sampleProducts = [
-        { id: 1, img: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 1550000, disc: 19, rate: 4.9, sold: 1240, flash: false, desc: 'Bàn phím cơ không dây AKKO 3087 v2 switch Akko CS độc quyền, keycap PBT Doubleshot bền bỉ, kết nối Bluetooth 5.0 và Type-C.' },
-        { id: 2, img: 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 1190000, disc: 25, rate: 4.8, sold: 2400, flash: true, desc: 'Cảm biến HERO 25K tiên tiến, 11 nút có thể lập trình, hệ thống tạ điều chỉnh trọng lượng linh hoạt.' },
-        { id: 3, img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80', cat: 4, orig: 7990000, disc: 18, rate: 4.9, sold: 850, flash: false, desc: 'Công nghệ chống ồn hàng đầu thế giới với bộ xử lý Integrated Processor V1, pin 30 giờ.' },
-        { id: 4, img: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=600&q=80', cat: 5, orig: 12900000, disc: 13, rate: 5.0, sold: 420, flash: false, desc: 'Tấm nền IPS Black độ tương phản 2000:1, độ phủ màu 100% sRGB, cổng kết nối Type-C cấp nguồn 90W.' },
-        { id: 5, img: 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?auto=format&fit=crop&w=600&q=80', cat: 3, orig: 450000, disc: 28, rate: 4.7, sold: 3100, flash: false, desc: 'Chất liệu hợp kim nhôm nguyên khối, đệm silicon chống trượt và trầy xước, tùy chỉnh 6 cấp độ cao.' },
-        { id: 6, img: 'https://images.unsplash.com/photo-1588508065123-287b28e013da?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 950000, disc: 21, rate: 4.6, sold: 620, flash: false, desc: 'Độ phân giải Full HD 1080p 60fps mượt mà, tự động lấy nét nhanh, mic kép lọc ồn thông minh.' },
-        { id: 7, img: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=600&q=80', cat: 9, orig: 600000, disc: 25, rate: 4.8, sold: 980, flash: false, desc: 'Chỉ số hoàn màu Ra>95 bảo vệ thị lực, điều khiển cảm ứng trượt mượt mà, hẹn giờ tắt thông minh.' },
-        { id: 8, img: 'https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?auto=format&fit=crop&w=600&q=80', cat: 7, orig: 2890000, disc: 18, rate: 4.9, sold: 1150, flash: false, desc: 'Tốc độ đọc/ghi lên tới 1.050MB/s NVMe, vỏ nhôm chống sốc rơi vỡ tới 2 mét, bảo mật vân tay.' },
-        { id: 9, img: 'https://images.unsplash.com/photo-1541689592655-f5f52825a3b8?auto=format&fit=crop&w=600&q=80', cat: 8, orig: 250000, disc: 24, rate: 4.9, sold: 5600, flash: true, desc: 'Hỗ trợ công suất Power Delivery 100W, dây bọc dù bện nylon siêu bền chịu uốn 25.000 lần.' },
-        { id: 10, img: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=600&q=80', cat: 8, orig: 650000, disc: 24, rate: 4.8, sold: 1800, flash: true, desc: 'Công nghệ bán dẫn GaN nhỏ gọn hơn 50%, trang bị 2 cổng USB-C và 1 USB-A sạc cùng lúc 3 thiết bị.' },
-        { id: 11, img: 'https://images.unsplash.com/photo-1544652478-6653e09f18a2?auto=format&fit=crop&w=600&q=80', cat: 3, orig: 790000, disc: 21, rate: 4.7, sold: 920, flash: false, desc: 'Mở rộng toàn diện: HDMI 4K 60Hz, sạc pass-through PD 100W, khe thẻ SD/TF, 3 cổng USB 3.0, LAN Gigabit.' },
-        { id: 12, img: 'https://images.unsplash.com/photo-1545454675-3531b543be5d?auto=format&fit=crop&w=600&q=80', cat: 4, orig: 2990000, disc: 16, rate: 4.8, sold: 1100, flash: false, desc: 'Hệ thống loa 2 chiều âm bass uy lực, chuẩn chống nước bụi IP67, pin sử dụng liên tục 12 giờ.' },
-        { id: 13, img: 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=600&q=80', cat: 4, orig: 1450000, disc: 20, rate: 4.7, sold: 380, flash: false, desc: 'Mô hình thu âm Cardioid tập trung bắt trọn giọng nói, màng lọc pop filter lọc tạp âm thở.' },
-        { id: 14, img: 'https://images.unsplash.com/photo-1580481077195-c328ad4f3922?auto=format&fit=crop&w=600&q=80', cat: 6, orig: 4600000, disc: 17, rate: 4.9, sold: 460, flash: false, desc: 'Tựa lưng cánh bướm ôm sát cột sống, lưới thoáng khí Hàn Quốc, kê tay 3D linh hoạt.' },
-        { id: 15, img: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=600&q=80', cat: 6, orig: 8900000, disc: 15, rate: 4.9, sold: 210, flash: false, desc: 'Động cơ kép nâng hạ êm ái tải trọng 120kg, bộ điều khiển nhớ 4 vị trí chiều cao, cảm biến chống va chạm.' },
-        { id: 16, img: 'https://images.unsplash.com/photo-1629429408209-1ab9133e0b24?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 180000, disc: 33, rate: 4.8, sold: 4800, flash: true, desc: 'Bề mặt vải dệt micro-weave siêu mịn rê chuột chuẩn xác, đáy cao su tự nhiên chống trượt.' },
-        { id: 17, img: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=600&q=80', cat: 9, orig: 240000, disc: 25, rate: 4.6, sold: 890, flash: false, desc: 'Pin 4000mAh liên tục 8 tiếng, 4 chế độ gió êm ái dưới 20dB, xoay linh hoạt 120 độ.' },
-        { id: 18, img: 'https://images.unsplash.com/photo-1609592424109-dd9892f1b177?auto=format&fit=crop&w=600&q=80', cat: 8, orig: 720000, disc: 23, rate: 4.8, sold: 2150, flash: false, desc: 'Dung lượng thực 20.000mAh Polymer, sạc nhanh PD 22.5W hai chiều, màn hình LED hiển thị % pin.' },
-        { id: 19, img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=600&q=80', cat: 2, orig: 290000, disc: 24, rate: 4.7, sold: 1400, flash: false, desc: 'Đệm mút bong bóng 360 độ chống va đập, vải Polyester chống thấm nước mưa, nhiều ngăn phụ tiện lợi.' },
-        { id: 20, img: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 199000, disc: 50, rate: 4.9, sold: 3200, flash: true, desc: 'Sản phẩm đặc biệt phục vụ kiểm thử luồng Flash Sale chịu tải cao (k6). Giới hạn số lượng ít trong kho.' }
+        { id: 1, cat: 10, orig: 1550000, disc: 19, rate: 4.9, sold: 1240, flash: false, desc: 'Bàn phím cơ không dây AKKO 3087 v2 switch Akko CS độc quyền, keycap PBT Doubleshot bền bỉ, kết nối Bluetooth 5.0 và Type-C.' },
+        { id: 2, cat: 10, orig: 1190000, disc: 25, rate: 4.8, sold: 2400, flash: true, desc: 'Cảm biến HERO 25K tiên tiến, 11 nút có thể lập trình, hệ thống tạ điều chỉnh trọng lượng linh hoạt.' },
+        { id: 3, cat: 4, orig: 7990000, disc: 18, rate: 4.9, sold: 850, flash: false, desc: 'Công nghệ chống ồn hàng đầu thế giới với bộ xử lý Integrated Processor V1, pin 30 giờ.' },
+        { id: 4, cat: 5, orig: 12900000, disc: 13, rate: 5.0, sold: 420, flash: false, desc: 'Tấm nền IPS Black độ tương phản 2000:1, độ phủ màu 100% sRGB, cổng kết nối Type-C cấp nguồn 90W.' },
+        { id: 5, cat: 3, orig: 450000, disc: 28, rate: 4.7, sold: 3100, flash: false, desc: 'Chất liệu hợp kim nhôm nguyên khối, đệm silicon chống trượt và trầy xước, tùy chỉnh 6 cấp độ cao.' },
+        { id: 6, cat: 10, orig: 950000, disc: 21, rate: 4.6, sold: 620, flash: false, desc: 'Độ phân giải Full HD 1080p 60fps mượt mà, tự động lấy nét nhanh, mic kép lọc ồn thông minh.' },
+        { id: 7, cat: 9, orig: 600000, disc: 25, rate: 4.8, sold: 980, flash: false, desc: 'Chỉ số hoàn màu Ra>95 bảo vệ thị lực, điều khiển cảm ứng trượt mượt mà, hẹn giờ tắt thông minh.' },
+        { id: 8, cat: 7, orig: 2890000, disc: 18, rate: 4.9, sold: 1150, flash: false, desc: 'Tốc độ đọc/ghi lên tới 1.050MB/s NVMe, vỏ nhôm chống sốc rơi vỡ tới 2 mét, bảo mật vân tay.' },
+        { id: 9, cat: 8, orig: 250000, disc: 24, rate: 4.9, sold: 5600, flash: true, desc: 'Hỗ trợ công suất Power Delivery 100W, dây bọc dù bện nylon siêu bền chịu uốn 25.000 lần.' },
+        { id: 10, cat: 8, orig: 650000, disc: 24, rate: 4.8, sold: 1800, flash: true, desc: 'Công nghệ bán dẫn GaN nhỏ gọn hơn 50%, trang bị 2 cổng USB-C và 1 USB-A sạc cùng lúc 3 thiết bị.' },
+        { id: 11, cat: 3, orig: 790000, disc: 21, rate: 4.7, sold: 920, flash: false, desc: 'Mở rộng toàn diện: HDMI 4K 60Hz, sạc pass-through PD 100W, khe thẻ SD/TF, 3 cổng USB 3.0, LAN Gigabit.' },
+        { id: 12, cat: 4, orig: 2990000, disc: 16, rate: 4.8, sold: 1100, flash: false, desc: 'Hệ thống loa 2 chiều âm bass uy lực, chuẩn chống nước bụi IP67, pin sử dụng liên tục 12 giờ.' },
+        { id: 13, cat: 4, orig: 1450000, disc: 20, rate: 4.7, sold: 380, flash: false, desc: 'Mô hình thu âm Cardioid tập trung bắt trọn giọng nói, màng lọc pop filter lọc tạp âm thở.' },
+        { id: 14, cat: 6, orig: 4600000, disc: 17, rate: 4.9, sold: 460, flash: false, desc: 'Tựa lưng cánh bướm ôm sát cột sống, lưới thoáng khí Hàn Quốc, kê tay 3D linh hoạt.' },
+        { id: 15, cat: 6, orig: 8900000, disc: 15, rate: 4.9, sold: 210, flash: false, desc: 'Động cơ kép nâng hạ êm ái tải trọng 120kg, bộ điều khiển nhớ 4 vị trí chiều cao, cảm biến chống va chạm.' },
+        { id: 16, cat: 10, orig: 180000, disc: 33, rate: 4.8, sold: 4800, flash: true, desc: 'Bề mặt vải dệt micro-weave siêu mịn rê chuột chuẩn xác, đáy cao su tự nhiên chống trượt.' },
+        { id: 17, cat: 9, orig: 240000, disc: 25, rate: 4.6, sold: 890, flash: false, desc: 'Pin 4000mAh liên tục 8 tiếng, 4 chế độ gió êm ái dưới 20dB, xoay linh hoạt 120 độ.' },
+        { id: 18, cat: 8, orig: 720000, disc: 23, rate: 4.8, sold: 2150, flash: false, desc: 'Dung lượng thực 20.000mAh Polymer, sạc nhanh PD 22.5W hai chiều, màn hình LED hiển thị % pin.' },
+        { id: 19, cat: 2, orig: 290000, disc: 24, rate: 4.7, sold: 1400, flash: false, desc: 'Đệm mút bong bóng 360 độ chống va đập, vải Polyester chống thấm nước mưa, nhiều ngăn phụ tiện lợi.' },
+        { id: 20, cat: 10, orig: 199000, disc: 50, rate: 4.9, sold: 3200, flash: true, desc: 'Sản phẩm đặc biệt phục vụ kiểm thử luồng Flash Sale chịu tải cao (k6). Giới hạn số lượng ít trong kho.' }
       ];
 
       for (const p of sampleProducts) {
         await pool.query(
           `UPDATE products
-           SET image_url = $1, thumbnails = $2, category_id = $3, original_price = $4, discount_percent = $5,
-               rating = $6, sold_count = $7, is_flash_sale = $8, description = $9
-           WHERE id = $10`,
-          [p.img, JSON.stringify([p.img]), p.cat, p.orig, p.disc, p.rate, p.sold, p.flash, p.desc, p.id]
+           SET category_id = $1, original_price = $2, discount_percent = $3,
+               rating = $4, sold_count = $5, is_flash_sale = $6, description = $7
+           WHERE id = $8`,
+          [p.cat, p.orig, p.disc, p.rate, p.sold, p.flash, p.desc, p.id]
         );
       }
 
       await pool.query(`
-        INSERT INTO products (id, name, slug, category_id, price, original_price, discount_percent, stock, rating, review_count, sold_count, is_flash_sale, image_url, thumbnails, description) VALUES
-        (21, 'Điện thoại Flagship AuraPhone Pro 256GB', 'dien-thoai-flagship-auraphone-pro-256gb', 1, 18990000, 21990000, 13, 25, 4.9, 150, 890, false, 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Vi xử lý 4nm đỉnh cao, màn hình Dynamic AMOLED 120Hz mượt mà, camera 108MP chống rung OIS.'),
-        (22, 'Áo Polo Nam AuraMall Classic Cotton', 'ao-polo-nam-auramall-classic-cotton', 2, 299000, 399000, 25, 120, 4.8, 340, 1850, true, 'https://images.unsplash.com/photo-1581655353564-df123a1eb820?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1581655353564-df123a1eb820?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Chất liệu 100% Cotton chải kỹ tự nhiên, thấm hút mồ hôi tối ưu, form Regular Fit tôn dáng.'),
-        (23, 'Giày Sneaker AuraSport Pro Running (Hết hàng mẫu)', 'giay-sneaker-aurasport-pro-running', 2, 850000, 1100000, 22, 0, 4.7, 85, 520, false, 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Đế đệm khí êm ái, vải dệt Flyknit thoáng khí. Sản phẩm mẫu có stock = 0 để kiểm tra giao diện nhãn Hết hàng & nút vô hiệu hóa.'),
-        (24, 'Đồng hồ thông minh AuraWatch Ultra', 'dong-ho-thong-minh-aurawatch-ultra', 1, 3450000, 4200000, 17, 18, 4.8, 95, 410, false, 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Khung titan siêu nhẹ, đo nhịp tim SpO2 liên tục 24/7, định vị GPS kép độc lập, chống nước 5ATM.')
+        INSERT INTO products (id, name, slug, category_id, price, original_price, discount_percent, stock, rating, review_count, sold_count, is_flash_sale, description) VALUES
+        (21, 'Điện thoại Flagship AuraPhone Pro 256GB', 'dien-thoai-flagship-auraphone-pro-256gb', 1, 18990000, 21990000, 13, 25, 4.9, 150, 890, false, 'Vi xử lý 4nm đỉnh cao, màn hình Dynamic AMOLED 120Hz mượt mà, camera 108MP chống rung OIS.'),
+        (22, 'Áo Polo Nam AuraMall Classic Cotton', 'ao-polo-nam-auramall-classic-cotton', 2, 299000, 399000, 25, 120, 4.8, 340, 1850, true, 'Chất liệu 100% Cotton chải kỹ tự nhiên, thấm hút mồ hôi tối ưu, form Regular Fit tôn dáng.'),
+        (23, 'Giày Sneaker AuraSport Pro Running (Hết hàng mẫu)', 'giay-sneaker-aurasport-pro-running', 2, 850000, 1100000, 22, 0, 4.7, 85, 520, false, 'Đế đệm khí êm ái, vải dệt Flyknit thoáng khí. Sản phẩm mẫu có stock = 0 để kiểm tra giao diện nhãn Hết hàng & nút vô hiệu hóa.'),
+        (24, 'Đồng hồ thông minh AuraWatch Ultra', 'dong-ho-thong-minh-aurawatch-ultra', 1, 3450000, 4200000, 17, 18, 4.8, 95, 410, false, 'Khung titan siêu nhẹ, đo nhịp tim SpO2 liên tục 24/7, định vị GPS kép độc lập, chống nước 5ATM.')
         ON CONFLICT (id) DO NOTHING;
         SELECT setval('products_id_seq', (SELECT MAX(id) FROM products));
       `);
+    }
+
+    // 4. Gắn ảnh cho sản phẩm mẫu: CSDL cũ chưa có ảnh hoặc còn link Unsplash cũ (một số link đã hỏng)
+    for (const [id, files] of Object.entries(SEED_PRODUCT_IMAGES)) {
+      const images = files.map((file) => `/images/products/${file}`);
+      await pool.query(
+        `UPDATE products SET image_url = $1, thumbnails = $2
+         WHERE id = $3 AND (image_url IS NULL OR image_url LIKE 'https://images.unsplash.com/%')`,
+        [images[0], JSON.stringify(images), id]
+      );
     }
     console.log('Đồng bộ và nạp dữ liệu mẫu AuraMall thành công!');
   } catch (err) {

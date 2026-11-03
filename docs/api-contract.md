@@ -9,6 +9,7 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
   - `status: "fail"`: Lỗi do dữ liệu người dùng/client gửi lên (400, 401, 404, 409)
   - `status: "error"`: Lỗi hệ thống máy chủ nội bộ (500)
 - **Xác thực**: Bearer JWT Token gửi qua Header: `Authorization: Bearer <token>`
+- **Swagger UI**: [http://localhost/api/docs/](http://localhost/api/docs/) (thử gọi API trực tiếp, đặc tả JSON tại `/api/docs/openapi.json`, nguồn: `backend/openapi.js`). Khi sửa API phải cập nhật cả file này và `backend/openapi.js`.
 
 ---
 
@@ -28,6 +29,7 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
 | **201 Created** | `success` | Khởi tạo tài nguyên thành công (Đăng ký, Tạo đơn hàng, Thêm địa chỉ) |
 | **400 Bad Request** | `fail` | Thiếu trường bắt buộc, sai định dạng (mật khẩu yếu, số điện thoại sai định dạng, hết hàng khi đặt hàng, cố gắng xóa địa chỉ duy nhất) |
 | **401 Unauthorized**| `fail` | Sai tài khoản/mật khẩu, chưa đăng nhập hoặc Token hết hạn |
+| **403 Forbidden** | `fail` | Sửa/xóa sản phẩm không phải do mình đăng bán |
 | **404 Not Found** | `fail` | Không tìm thấy sản phẩm, đơn hàng, người dùng hoặc đường dẫn |
 | **409 Conflict** | `fail` | Trùng lặp dữ liệu hoặc xung đột tồn kho |
 | **500 Server Error**| `error` | Lỗi cơ sở dữ liệu hoặc máy chủ nội bộ |
@@ -232,13 +234,16 @@ Truy vấn danh mục sản phẩm có phân trang, bộ lọc và sắp xếp.
       "review_count": 320,
       "sold_count": 1240,
       "is_flash_sale": false,
-      "image_url": "https://images.unsplash.com/photo-1587829741301-dc798b83add3",
+      "image_url": "/images/products/akko-3087.jpg",
       "thumbnails": [
-        "https://images.unsplash.com/photo-1587829741301-dc798b83add3",
-        "https://images.unsplash.com/photo-1618384887929-16ec33fab9ef"
+        "/images/products/akko-3087.jpg",
+        "/images/products/akko-3087-2.jpg"
       ],
       "description": "Bàn phím cơ không dây AKKO 3087 v2 sử dụng switch độc quyền...",
-      "created_at": "2026-11-03T18:00:00.000Z"
+      "created_at": "2026-11-03T18:00:00.000Z",
+      "category_slug": "gaming-ngoai-vi",
+      "seller_id": null,
+      "seller_username": null
     }
   ],
   "pagination": {
@@ -249,6 +254,9 @@ Truy vấn danh mục sản phẩm có phân trang, bộ lọc và sắp xếp.
   }
 }
 ```
+
+- Ảnh của 24 sản phẩm mẫu lưu tại `frontend/images/products/` (Nginx phục vụ trực tiếp), nguồn ảnh ghi trong `CREDITS.md` cùng thư mục.
+- `seller_id` / `seller_username`: người đăng bán; `null` là hàng của AuraMall.
 
 ---
 
@@ -277,6 +285,63 @@ Lấy chi tiết một sản phẩm theo ID.
   }
 }
 ```
+
+---
+
+## 5b. KÊNH NGƯỜI BÁN (ĐĂNG BÁN SẢN PHẨM)
+
+Các API dưới đây **bắt buộc đăng nhập** (`401` nếu thiếu token). Người dùng chỉ sửa/xóa được sản phẩm do chính mình đăng (`403` nếu không phải).
+
+### `POST /api/products`
+Đăng bán sản phẩm mới. Sản phẩm gắn với người đang đăng nhập (`seller_id`), chưa có đánh giá nên `rating = 0`, `review_count = 0`.
+
+- **Request Body**:
+```json
+{
+  "name": "Tai nghe True Wireless AuraBuds Pro",
+  "categoryId": 4,
+  "price": 1290000,
+  "originalPrice": 1590000,
+  "stock": 40,
+  "imageUrl": "https://example.com/aurabuds.jpg",
+  "thumbnails": ["https://example.com/aurabuds-2.jpg"],
+  "description": "Chống ồn chủ động, pin 30 giờ, sạc nhanh USB-C."
+}
+```
+
+- **Ràng buộc kiểm tra (Validation)**:
+  - `name`: 3 - 255 ký tự. `slug` được tự sinh từ tên (bỏ dấu tiếng Việt).
+  - `categoryId`: phải là danh mục đang có.
+  - `price`: số nguyên 1.000 - 9.999.999.999 (VND).
+  - `originalPrice` (không bắt buộc): phải lớn hơn hoặc bằng `price`; `discount_percent` tự tính.
+  - `stock`: số nguyên 0 - 1.000.000.
+  - `imageUrl`, `thumbnails` (không bắt buộc): link `http(s)://` hoặc ảnh có sẵn `/images/...`; tối đa 8 ảnh. Ảnh chính luôn là phần tử đầu của `thumbnails`.
+  - `description` (không bắt buộc): tối đa 5000 ký tự.
+
+- **Response `201 Created`**: `{ "status": "success", "message": "Đăng bán sản phẩm thành công!", "data": { ...sản phẩm như GET /api/products/:id } }`
+
+### `PUT /api/products/:id`
+Sửa sản phẩm do mình đăng bán. Body và ràng buộc giống `POST /api/products` (gửi đầy đủ các trường).
+
+- **Response `200 OK`**: `{ "status": "success", "message": "Cập nhật sản phẩm thành công.", "data": { ... } }`
+- Lỗi: `403` (không phải sản phẩm của bạn), `404` (không có sản phẩm).
+
+### `DELETE /api/products/:id`
+Xóa sản phẩm do mình đăng bán.
+
+- **Response `200 OK`**: `{ "status": "success", "message": "Đã xóa sản phẩm." }`
+- **Response `409 Conflict`** (sản phẩm đã có đơn hàng, giữ lại để không mất lịch sử đơn):
+```json
+{
+  "status": "fail",
+  "message": "Sản phẩm đã có đơn hàng nên không thể xóa. Hãy đặt tồn kho về 0 để ngừng bán."
+}
+```
+
+### `GET /api/user/products`
+Danh sách sản phẩm do người dùng hiện tại đăng bán, mới nhất trước.
+
+- **Response `200 OK`**: `{ "status": "success", "total": 1, "data": [ { ...sản phẩm } ] }`
 
 ---
 

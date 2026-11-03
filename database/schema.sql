@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS products (
     image_url TEXT,
     thumbnails JSONB DEFAULT '[]'::jsonb,
     description TEXT,
+    seller_id INT REFERENCES users(id) ON DELETE SET NULL, -- người đăng bán; NULL = hàng của AuraMall
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -98,6 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_products_price ON products(price);
 CREATE INDEX IF NOT EXISTS idx_products_rating ON products(rating);
 CREATE INDEX IF NOT EXISTS idx_products_sold_count ON products(sold_count);
 CREATE INDEX IF NOT EXISTS idx_products_flash_sale ON products(is_flash_sale);
+CREATE INDEX IF NOT EXISTS idx_products_seller_id ON products(seller_id);
 
 CREATE INDEX IF NOT EXISTS idx_orders_product_id ON orders(product_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);

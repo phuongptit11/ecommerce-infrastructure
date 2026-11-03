@@ -3,813 +3,215 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AuraMall - Nền Tảng Thương Mại Điện Tử Hiện Đại</title>
+  <title>AuraMall — Mua sắm đẳng cấp</title>
+  <meta name="description" content="AuraMall: thương mại điện tử trên hạ tầng 3 tầng Nginx → Node.js → PostgreSQL (Đề tài 07)." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600&family=Montserrat:wght@300;400;500;600&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛍️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000'/%3E%3Ctext x='32' y='43' font-family='Arial' font-size='30' fill='%23bc8420' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E" />
 </head>
 <body>
+  <!-- Bộ icon nét mảnh dùng chung -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display: none">
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8" /><path d="M4.5 20.5c1.3-3.6 4.2-5.4 7.5-5.4s6.2 1.8 7.5 5.4" /></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l-1.1 12.5H6.1z" /><path d="M8.8 8V6.8a3.2 3.2 0 016.4 0V8" /></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13" /></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 7h17M3.5 12h17M3.5 17h17" /></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5" /></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 5.5L16 12l-6.5 6.5" /></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M5.5 9.5L12 16l6.5-6.5" /></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13.5 6.5L19 12l-5.5 5.5" /></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.7h9.2L17.5 7" /></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 17l-5.2 2.7 1-5.8-4.3-4.1 5.9-.8z" /></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M2.5 6.5h11v10h-11zM13.5 10h4l3 3.2v3.3h-7" /><circle cx="6.5" cy="17.5" r="1.8" /><circle cx="17" cy="17.5" r="1.8" /></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z" /><path d="M8.8 12.2l2.2 2.2 4.3-4.4" /></symbol>
+    <symbol id="i-return" viewBox="0 0 24 24"><path d="M4.5 9.5h11a4.5 4.5 0 010 9H9" /><path d="M8.5 5.5l-4 4 4 4" /></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0113 0c0 4.8-6.5 11-6.5 11z" /><circle cx="12" cy="10" r="2.3" /></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z" /><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9" /></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 9.5V20h16V9.5M3 9.5l1.8-5.5h14.4L21 9.5z" /><path d="M9.5 20v-5.5h5V20" /></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M15.5 4.5l4 4L8 20H4v-4z" /></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4.5H5.5v15H14M10 12h10.5M17 8.5l3.5 3.5-3.5 3.5" /></symbol>
+    <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5M11 8v6M8 11h6" /></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5L5 13.5h6l-1 8 8-11h-6z" /></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8.5L19 7.5V21H6z" /><path d="M14 3v5h5M9 12.5h6.5M9 16h6.5" /></symbol>
+  </svg>
 
-  <!-- 1. TOP BAR: TRẠNG THÁI HẠ TẦNG (NGHIỆM THU ĐỀ TÀI 07) -->
-  <div class="top-bar">
-    <div class="container top-bar-content">
-      <div class="top-bar-left">
-        <span>🏛️ Đề tài 07: Thiết kế hạ tầng TMĐT phân vùng 3 tầng</span>
-        <span style="opacity: 0.5;">|</span>
-        <span>Nginx (Port 80) &rarr; Node.js Express (Port 5000) &rarr; PostgreSQL 15 (Port 5432)</span>
+  <!-- Hiệu ứng chuyển trang: màn chắn nghiêng quét ngang -->
+  <div id="curtain" class="curtain is-covering" aria-hidden="true">
+    <div class="curtain-panel"></div>
+    <div class="curtain-brand"><span>AURA</span>MALL</div>
+  </div>
+
+  <!-- Thanh tiện ích: trạng thái hạ tầng 3 tầng -->
+  <div class="util-bar">
+    <div class="container util-inner">
+      <div class="util-left">
+        <span id="healthDot" class="health-dot" aria-hidden="true"></span>
+        <span id="healthText">Đang kiểm tra hạ tầng...</span>
+        <span class="util-sep hide-md">|</span>
+        <span class="hide-md">Nginx → Node.js → PostgreSQL</span>
       </div>
-      <div class="top-bar-right">
-        <div id="healthStatusBadge" class="status-indicator">
-          <span id="healthStatusDot" class="status-dot"></span>
-          <span id="healthStatusText">Kiểm tra kết nối...</span>
-        </div>
-        <span>Hotline: 1900 8899</span>
-      </div>
+      <nav class="util-right hide-sm" aria-label="Liên kết tiện ích">
+        <a href="#/sell" class="link-lux">Kênh người bán</a>
+        <a href="/api/docs/" target="_blank" rel="noopener" class="link-lux">Tài liệu API</a>
+        <span>Hotline 1900 8899</span>
+      </nav>
     </div>
   </div>
 
-  <!-- 2. HEADER TOÀN HỆ THỐNG -->
-  <header class="site-header">
-    <div class="container header-main">
-      <!-- Logo web: đặt góc trái, click để quay về trang chủ, tên: auramall -->
-      <div class="logo" onclick="navigate('home')">
-        <div class="logo-icon">A</div>
-        <div class="logo-text">
-          auramall
-          <span class="logo-sub">Mall</span>
-        </div>
-      </div>
+  <!-- Header -->
+  <header id="siteHeader" class="site-header">
+    <div class="container header-inner">
+      <button class="icon-btn burger" data-action="drawer-open" aria-label="Mở menu">
+        <svg class="icon"><use href="#i-menu" /></svg>
+      </button>
 
-      <!-- Thanh tìm kiếm (search bar): ô nhập từ khóa, nút icon kính lúp, gợi ý từ khóa hot -->
-      <div class="search-wrapper">
-        <div class="search-box">
-          <input
-            id="headerSearchInput"
-            type="text"
-            class="search-input"
-            placeholder="Tìm kiếm sản phẩm, thương hiệu công nghệ hoặc gia dụng..."
-            autocomplete="off"
-          />
-          <button id="headerSearchBtn" class="search-btn" title="Tìm kiếm">
-            🔍 Tìm
-          </button>
-        </div>
-        <div class="hot-keywords">
-          <span style="font-weight: 600; color: #475569;">Gợi ý hot:</span>
-          <span onclick="searchInputHot('Bàn phím cơ')">Bàn phím cơ</span>
-          <span onclick="searchInputHot('Logitech G502')">Logitech G502</span>
-          <span onclick="searchInputHot('Sony WH-1000XM5')">Sony XM5</span>
-          <span onclick="searchInputHot('Màn hình 4K')">Màn hình Dell 4K</span>
-          <span onclick="searchInputHot('Cáp sạc 100W')">Cáp sạc 100W</span>
-          <span onclick="searchInputHot('Ghế công thái học')">Ghế công thái học</span>
-        </div>
-      </div>
+      <a href="#/" class="brand" aria-label="AuraMall - Trang chủ"><span>AURA</span>MALL</a>
 
-      <!-- Khu vực header actions: Giỏ hàng & Tài khoản -->
+      <nav class="main-nav" aria-label="Điều hướng chính">
+        <button class="nav-link" data-action="mega-toggle" aria-expanded="false" aria-controls="megaMenu">
+          Sản phẩm <svg class="icon icon-xs"><use href="#i-down" /></svg>
+        </button>
+        <a class="nav-link" href="#/products?flashSale=1" data-nav="flash">Flash Sale</a>
+        <a class="nav-link" href="#/products?sort=newest" data-nav="newest">Hàng mới</a>
+        <a class="nav-link" href="#/sell" data-nav="sell">Đăng bán</a>
+      </nav>
+
       <div class="header-actions">
-        <!-- Icon giỏ hàng: góc phải trên cùng, badge số lượng, hover popover 3 sp gần nhất -->
-        <div class="cart-action">
-          <button id="headerCartBtn" class="cart-btn" onclick="navigate('cart')" title="Xem giỏ hàng">
-            🛒
-            <span id="headerCartBadge" class="cart-badge" style="display: none;">0</span>
+        <button class="icon-btn" data-action="search-open" aria-label="Tìm kiếm">
+          <svg class="icon"><use href="#i-search" /></svg>
+        </button>
+
+        <div class="account-menu" id="accountMenu">
+          <a href="#/login" class="icon-btn" id="accountTrigger" aria-label="Tài khoản">
+            <svg class="icon"><use href="#i-user" /></svg>
+            <span class="account-name" id="accountName"></span>
+          </a>
+          <div class="dropdown" id="accountDropdown">
+            <div class="dropdown-head" id="accountDropdownHead"></div>
+            <a href="#/account/profile"><svg class="icon icon-sm"><use href="#i-user" /></svg>Hồ sơ của tôi</a>
+            <a href="#/account/addresses"><svg class="icon icon-sm"><use href="#i-pin" /></svg>Địa chỉ nhận hàng</a>
+            <a href="#/account/orders"><svg class="icon icon-sm"><use href="#i-box" /></svg>Đơn mua</a>
+            <a href="#/account/products"><svg class="icon icon-sm"><use href="#i-store" /></svg>Sản phẩm của tôi</a>
+            <button data-action="logout"><svg class="icon icon-sm"><use href="#i-logout" /></svg>Đăng xuất</button>
+          </div>
+        </div>
+
+        <div class="cart-menu">
+          <a href="#/cart" class="icon-btn" id="cartTrigger" aria-label="Giỏ hàng">
+            <svg class="icon"><use href="#i-bag" /></svg>
+            <span id="cartBadge" class="cart-badge" hidden>0</span>
+          </a>
+          <div class="dropdown cart-popover" id="cartPopover"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mega menu "Sản phẩm": tab theo danh mục, giống menu "Mẫu xe" -->
+    <div id="megaMenu" class="mega" hidden>
+      <div class="container">
+        <div class="mega-tabs tabs" id="megaTabs" role="tablist"></div>
+        <div class="mega-body" id="megaBody"></div>
+      </div>
+    </div>
+
+    <!-- Bảng tìm kiếm -->
+    <div id="searchPanel" class="search-panel" hidden>
+      <div class="container">
+        <form class="search-form" data-form="search" role="search">
+          <svg class="icon"><use href="#i-search" /></svg>
+          <input id="searchInput" name="q" type="search" placeholder="Bạn đang tìm sản phẩm nào?" autocomplete="off" />
+          <button type="button" class="icon-btn" data-action="search-close" aria-label="Đóng tìm kiếm">
+            <svg class="icon"><use href="#i-close" /></svg>
           </button>
-          <div class="cart-popover">
-            <div class="cart-popover-header">Sản phẩm mới thêm gần nhất</div>
-            <div id="cartPopoverList" class="cart-popover-list">
-              <!-- Render động 3 sp gần nhất -->
-            </div>
-            <div class="cart-popover-footer">
-              <button class="cart-popover-btn" onclick="navigate('cart')">Xem giỏ hàng</button>
-            </div>
-          </div>
+        </form>
+        <div class="search-hot">
+          <span class="eyebrow">Gợi ý</span>
+          <button class="chip" data-action="search-hot" data-q="Bàn phím cơ">Bàn phím cơ</button>
+          <button class="chip" data-action="search-hot" data-q="Logitech G502">Logitech G502</button>
+          <button class="chip" data-action="search-hot" data-q="Sony">Sony XM5</button>
+          <button class="chip" data-action="search-hot" data-q="Màn hình">Màn hình 4K</button>
+          <button class="chip" data-action="search-hot" data-q="Cáp sạc">Cáp sạc 100W</button>
+          <button class="chip" data-action="search-hot" data-q="Ghế công thái học">Ghế công thái học</button>
         </div>
-
-        <!-- Khu vực tài khoản: chưa login hover hiển thị đăng nhập/đăng ký; đã login hiển thị tài khoản, tên, avatar -->
-        <div class="user-menu-wrapper">
-          <!-- Trạng thái chưa login -->
-          <div id="headerUserUnlogged" class="user-trigger" onclick="navigate('auth', { tab: 'login' })">
-            <span style="font-size: 20px;">👤</span>
-            <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">Đăng nhập / Đăng ký</span>
-          </div>
-
-          <!-- Trạng thái đã login -->
-          <div id="headerUserLogged" class="user-trigger" style="display: none;">
-            <img id="headerUserAvatar" class="user-avatar-mini" src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100" alt="avatar" />
-            <span id="headerUsername" class="user-name-text">Người dùng</span>
-            <span style="font-size: 10px; color: var(--text-muted);">▼</span>
-            
-            <div class="user-dropdown">
-              <a href="javascript:void(0)" onclick="navigate('account'); switchAccountTab('profile');">
-                <span>👤</span> Hồ sơ cá nhân
-              </a>
-              <a href="javascript:void(0)" onclick="navigate('account'); switchAccountTab('addresses');">
-                <span>📍</span> Địa chỉ nhận hàng
-              </a>
-              <a href="javascript:void(0)" onclick="navigate('account'); switchAccountTab('orders');">
-                <span>📦</span> Đơn mua của tôi
-              </a>
-              <div class="divider"></div>
-              <button onclick="handleLogout()">
-                <span>🚪</span> Đăng xuất
-              </button>
-            </div>
-          </div>
-        </div>
+        <div id="searchResults" class="search-results"></div>
       </div>
     </div>
   </header>
 
-  <!-- KHUNG CHÍNH (MAIN VIEWS) -->
-  <main class="main-wrapper">
+  <!-- Menu di động -->
+  <div id="drawer" class="drawer" hidden>
+    <div class="drawer-backdrop" data-action="drawer-close"></div>
+    <aside class="drawer-panel" aria-label="Menu">
+      <div class="drawer-head">
+        <a href="#/" class="brand"><span>AURA</span>MALL</a>
+        <button class="icon-btn" data-action="drawer-close" aria-label="Đóng menu">
+          <svg class="icon"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <nav class="drawer-nav">
+        <a href="#/products">Tất cả sản phẩm</a>
+        <a href="#/products?flashSale=1">Flash Sale</a>
+        <a href="#/products?sort=newest">Hàng mới</a>
+        <a href="#/sell">Đăng bán sản phẩm</a>
+        <a href="#/cart">Giỏ hàng</a>
+        <a href="#/account/profile">Tài khoản</a>
+        <a href="/api/docs/" target="_blank" rel="noopener">Tài liệu API</a>
+      </nav>
+      <p class="eyebrow drawer-label">Danh mục</p>
+      <nav class="drawer-cats" id="drawerCats"></nav>
+    </aside>
+  </div>
+
+  <main id="view" class="view" tabindex="-1"></main>
+
+  <footer class="site-footer">
     <div class="container">
-
-      <!-- ==========================================
-           MÀN HÌNH 1: AUTH (ĐĂNG KÝ, ĐĂNG NHẬP)
-           ========================================== -->
-      <section id="view-auth" class="view-section">
-        <div class="auth-container">
-          <!-- Cột trái: Banner giới thiệu ưu đãi Flash Sale -->
-          <div class="auth-banner">
-            <div>
-              <div style="font-size: 14px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; opacity: 0.8; margin-bottom: 8px;">
-                ĐẶC QUYỀN THÀNH VIÊN AURAMALL
-              </div>
-              <h2 class="auth-banner-title">Khám Phá Siêu Ưu Đãi Flash Sale Mỗi Ngày</h2>
-              <p class="auth-banner-desc">
-                Hòa mình vào thiên đường mua sắm công nghệ & tiện ích hàng đầu. Đăng ký ngay để nhận combo voucher chào mừng độc quyền!
-              </p>
-              <div class="auth-promo-box">
-                <div class="auth-promo-item">
-                  <span>⚡</span>
-                  <span>Flash Sale giảm giá chớp nhoáng lên đến 50%</span>
-                </div>
-                <div class="auth-promo-item">
-                  <span>🚚</span>
-                  <span>Miễn phí vận chuyển toàn quốc cho đơn từ 500k</span>
-                </div>
-                <div class="auth-promo-item">
-                  <span>🛡️</span>
-                  <span>Cam kết 100% hàng chính hãng, đổi trả 30 ngày</span>
-                </div>
-              </div>
-            </div>
-            <div style="font-size: 12px; opacity: 0.7;">
-              © 2026 AuraMall Infrastructure E-Commerce. All rights reserved.
-            </div>
-          </div>
-
-          <!-- Cột phải: Form thao tác -->
-          <div class="auth-form-column">
-            <div class="auth-tabs">
-              <button id="tabBtnLogin" class="auth-tab-btn active" onclick="switchAuthTab('login')">
-                Đăng Nhập
-              </button>
-              <button id="tabBtnRegister" class="auth-tab-btn" onclick="switchAuthTab('register')">
-                Đăng Ký
-              </button>
-            </div>
-
-            <!-- Form Đăng Nhập -->
-            <form id="formLogin" onsubmit="handleLogin(event)">
-              <div class="form-group">
-                <label class="form-label" for="loginUsername">Tên đăng nhập / Email / Số điện thoại</label>
-                <input
-                  id="loginUsername"
-                  type="text"
-                  class="form-input"
-                  placeholder="Nhập username, email hoặc SĐT..."
-                  required
-                />
-              </div>
-              <div class="form-group">
-                <label class="form-label" for="loginPassword">Mật khẩu</label>
-                <input
-                  id="loginPassword"
-                  type="password"
-                  class="form-input"
-                  placeholder="Nhập mật khẩu..."
-                  required
-                />
-              </div>
-              <div class="form-row-between">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                  <input id="loginRemember" type="checkbox" checked />
-                  <span>Ghi nhớ đăng nhập</span>
-                </label>
-                <a href="javascript:void(0)" onclick="showToast('Vui lòng liên hệ quản trị viên để cấp lại mật khẩu!', 'error')" style="color: var(--secondary); font-weight: 500;">
-                  Quên mật khẩu?
-                </a>
-              </div>
-              <button type="submit" class="btn-primary-block">ĐĂNG NHẬP</button>
-              
-              <div class="auth-social-divider">
-                <span>Hoặc đăng nhập với</span>
-              </div>
-              <div class="social-buttons">
-                <button type="button" class="btn-social" onclick="showToast('Chức năng Google Auth đang kết nối SSO...', 'success')">
-                  <span>🔴</span> Google
-                </button>
-                <button type="button" class="btn-social" onclick="showToast('Chức năng Facebook Auth đang kết nối SSO...', 'success')">
-                  <span>🔵</span> Facebook
-                </button>
-              </div>
-            </form>
-
-            <!-- Form Đăng Ký -->
-            <form id="formRegister" style="display: none;" onsubmit="handleRegister(event)">
-              <div class="form-group">
-                <label class="form-label" for="regUsername">Tên đăng nhập</label>
-                <input id="regUsername" type="text" class="form-input" placeholder="Từ 3-30 ký tự, không dấu..." required />
-              </div>
-              <div class="form-group">
-                <label class="form-label" for="regEmail">Email</label>
-                <input id="regEmail" type="email" class="form-input" placeholder="example@domain.com" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label" for="regPhone">Số điện thoại</label>
-                <input id="regPhone" type="tel" class="form-input" placeholder="10 - 11 chữ số (vd: 0969795794)" required />
-              </div>
-              <div class="form-group">
-                <label class="form-label" for="regPassword">Mật khẩu</label>
-                <input id="regPassword" type="password" class="form-input" placeholder="Tối thiểu 8 ký tự..." required />
-                <div class="password-checklist">
-                  <div id="chkLen" class="checklist-item"><span>•</span> Tối thiểu 8 ký tự</div>
-                  <div id="chkUpper" class="checklist-item"><span>•</span> Có ít nhất 1 chữ in hoa</div>
-                  <div id="chkLower" class="checklist-item"><span>•</span> Có ít nhất 1 chữ thường</div>
-                  <div id="chkNumber" class="checklist-item"><span>•</span> Có ít nhất 1 chữ số</div>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label" for="regConfirmPassword">Nhập lại mật khẩu</label>
-                <input id="regConfirmPassword" type="password" class="form-input" placeholder="Khớp với mật khẩu bên trên" required />
-                <div id="regMatchError" style="font-size: 12px; margin-top: 4px; font-weight: 500;"></div>
-              </div>
-              <div class="form-group">
-                <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 13px; cursor: pointer;">
-                  <input id="regAgreeTerms" type="checkbox" checked style="margin-top: 3px;" />
-                  <span>Tôi đồng ý với <a href="javascript:void(0)" style="color: var(--secondary);">Điều khoản dịch vụ</a> và <a href="javascript:void(0)" style="color: var(--secondary);">Chính sách bảo mật</a> của AuraMall</span>
-                </label>
-              </div>
-              <button type="submit" class="btn-primary-block">ĐĂNG KÝ NGAY</button>
-              
-              <div style="text-align: center; margin-top: 16px; font-size: 13px;">
-                <span>Bạn đã có tài khoản? </span>
-                <a href="javascript:void(0)" onclick="switchAuthTab('login')" style="color: var(--primary); font-weight: 700;">
-                  Đăng nhập
-                </a>
-              </div>
-            </form>
-          </div>
+      <div class="footer-top">
+        <div class="footer-brand">
+          <a href="#/" class="brand"><span>AURA</span>MALL</a>
+          <p>Trải nghiệm mua sắm tinh tế: sản phẩm chính hãng, giao nhanh toàn quốc, đổi trả trong 30 ngày.</p>
         </div>
-      </section>
-
-      <!-- ==========================================
-           MÀN HÌNH 2: TRANG CHỦ & DANH MỤC SẢN PHẨM (LUỒNG 1: GET /api/products)
-           ========================================== -->
-      <section id="view-home" class="view-section active">
-        <!-- Banner chào mừng AuraMall Flash Sale -->
-        <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: var(--radius-md); padding: 24px 32px; color: #fff; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm);">
-          <div>
-            <span style="background: #ef4444; color: #fff; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 4px; text-transform: uppercase;">AuraMall Mega Sale 2026</span>
-            <h1 style="font-size: 26px; font-weight: 800; margin: 8px 0 4px;">Siêu Hội Công Nghệ & Tiện Ích Hiện Đại</h1>
-            <p style="font-size: 13px; color: #94a3b8;">Hệ thống hạ tầng phân vùng mạng 3 tầng Nginx - Express - PostgreSQL chịu tải cao.</p>
-          </div>
-          <button class="btn-primary-block" style="width: auto; padding: 10px 24px;" onclick="toggleFlashSaleFilter()">
-            ⚡ Xem mục Flash Sale
-          </button>
+        <div class="footer-col">
+          <h4>Danh mục</h4>
+          <nav id="footerCats"></nav>
         </div>
-
-        <div class="catalog-layout">
-          <!-- Cột bên trái (Bộ lọc) -->
-          <aside class="filter-sidebar">
-            <!-- 1. Danh mục sản phẩm: cây thư mục ~10 chủ đề -->
-            <div class="filter-section">
-              <div class="filter-heading">
-                <span>📁</span> Danh Mục Sản Phẩm
-              </div>
-              <ul id="categoryTree" class="category-tree">
-                <!-- Nạp động qua API /api/categories -->
-              </ul>
-            </div>
-
-            <!-- 2. Bộ lọc theo khoảng giá -->
-            <div class="filter-section">
-              <div class="filter-heading">
-                <span>💰</span> Khoảng Giá (VND)
-              </div>
-              <div class="price-range-inputs">
-                <input id="filterMinPrice" class="price-input" type="number" placeholder="Từ..." />
-                <span style="color: var(--text-light);">-</span>
-                <input id="filterMaxPrice" class="price-input" type="number" placeholder="Đến..." />
-              </div>
-              <button class="btn-filter-apply" onclick="applyPriceFilter()">Áp Dụng</button>
-            </div>
-
-            <!-- 3. Lọc theo đánh giá sao -->
-            <div class="filter-section">
-              <div class="filter-heading">
-                <span>⭐</span> Đánh Giá
-              </div>
-              <div class="rating-filter-list">
-                <div class="rating-filter-item" data-rating="5" onclick="filterByRating('5')">
-                  <span class="stars-gold">⭐⭐⭐⭐⭐</span>
-                  <span>(5 sao)</span>
-                </div>
-                <div class="rating-filter-item" data-rating="4" onclick="filterByRating('4')">
-                  <span class="stars-gold">⭐⭐⭐⭐</span>
-                  <span>(từ 4 sao trở lên)</span>
-                </div>
-                <div class="rating-filter-item" data-rating="3" onclick="filterByRating('3')">
-                  <span class="stars-gold">⭐⭐⭐</span>
-                  <span>(từ 3 sao trở lên)</span>
-                </div>
-              </div>
-            </div>
-
-            <button class="btn-filter-apply" style="background: #e2e8f0; color: #334155;" onclick="resetFilters()">
-              Xóa tất cả bộ lọc
-            </button>
-          </aside>
-
-          <!-- Khu vực nội dung chính: Grid sản phẩm & Phân trang -->
-          <main class="catalog-main">
-            <!-- Thanh sắp xếp: phổ biến, mới nhất, bán chạy, giá (thấp đến cao / cao đến thấp) -->
-            <div class="sort-bar">
-              <div class="sort-tabs-group">
-                <span class="sort-label">Sắp xếp theo:</span>
-                <button class="sort-tab-btn active" data-sort="popular" onclick="setSort('popular')">Phổ Biến</button>
-                <button class="sort-tab-btn" data-sort="newest" onclick="setSort('newest')">Mới Nhất</button>
-                <button class="sort-tab-btn" data-sort="best_seller" onclick="setSort('best_seller')">Bán Chạy</button>
-                <select class="sort-price-select" onchange="setSort(this.value)">
-                  <option value="">Giá: Mặc định</option>
-                  <option value="price_asc">Giá: Thấp đến Cao</option>
-                  <option value="price_desc">Giá: Cao đến Thấp</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Grid hiển thị sản phẩm -->
-            <div id="productGrid" class="product-grid">
-              <!-- Render thẻ sản phẩm động -->
-            </div>
-
-            <!-- Phân trang: cụm 20 sản phẩm/lần (LIMIT 20 backend) -->
-            <div id="pagination" class="pagination-wrapper">
-              <!-- Render động số trang -->
-            </div>
-          </main>
+        <div class="footer-col">
+          <h4>Mua sắm</h4>
+          <a href="#/products" class="link-lux">Tất cả sản phẩm</a>
+          <a href="#/products?flashSale=1" class="link-lux">Flash Sale</a>
+          <a href="#/products?sort=best_seller" class="link-lux">Bán chạy</a>
+          <a href="#/cart" class="link-lux">Giỏ hàng</a>
         </div>
-      </section>
-
-      <!-- ==========================================
-           MÀN HÌNH 3: CHI TIẾT SẢN PHẨM
-           ========================================== -->
-      <section id="view-product-detail" class="view-section">
-        <button onclick="navigate('home')" style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text-muted); margin-bottom: 16px;">
-          &larr; Quay lại danh mục
-        </button>
-
-        <div class="detail-card">
-          <!-- Hình ảnh & truyền thông (khung ảnh đại diện lớn bên trái + dải thumbnail nhỏ) -->
-          <div class="detail-gallery">
-            <div class="detail-main-img-box">
-              <img id="detailMainImage" class="detail-main-img" src="" alt="Sản phẩm" />
-            </div>
-            <div id="detailThumbnails" class="thumbnail-strip">
-              <!-- Render thumbnails động -->
-            </div>
-          </div>
-
-          <!-- Thông tin chi tiết (cột bên phải) -->
-          <div class="detail-info">
-            <h1 id="detailTitle" class="detail-title">Tên sản phẩm</h1>
-            
-            <div class="detail-rating-row">
-              <div id="detailStars" class="detail-stars">⭐ 5.0</div>
-              <div id="detailReviewCount" style="color: var(--text-muted);">120 Đánh giá</div>
-              <div id="detailSoldCount" style="color: var(--text-muted);">Đã bán 1.2k</div>
-            </div>
-
-            <!-- Khung giá bán: nền nổi bật -->
-            <div class="detail-price-box">
-              <span id="detailCurrentPrice" class="detail-current-price">0 ₫</span>
-              <span id="detailOldPrice" class="detail-old-price"></span>
-            </div>
-
-            <!-- Trạng thái kho hàng: còn hàng hoặc hết hàng -->
-            <div class="detail-stock-row">
-              <span style="font-weight: 600; width: 100px;">Trạng thái:</span>
-              <div id="detailStockBadge" class="stock-tag-badge stock-tag-in">
-                <span id="detailStockText">Còn hàng</span>
-              </div>
-            </div>
-
-            <!-- Bộ chọn số lượng: -, input, + -->
-            <div class="detail-quantity-row">
-              <span style="font-weight: 600; width: 100px;">Số lượng:</span>
-              <div class="quantity-control">
-                <button id="detailQtyMinus" class="qty-btn" onclick="adjustDetailQty(-1)">-</button>
-                <input id="detailQtyInput" class="qty-input" type="text" value="1" onchange="onDetailQtyChange(this.value)" />
-                <button id="detailQtyPlus" class="qty-btn" onclick="adjustDetailQty(1)">+</button>
-              </div>
-            </div>
-
-            <!-- Hành động mua hàng -->
-            <div class="detail-actions-row">
-              <button id="detailBtnAddCart" class="btn-add-cart" onclick="addToCart(false)">
-                <span>🛒</span> Thêm vào giỏ hàng
-              </button>
-              <button id="detailBtnBuyNow" class="btn-buy-now" onclick="addToCart(true)">
-                Mua ngay
-              </button>
-            </div>
-
-            <div style="border-top: 1px solid var(--border-light); padding-top: 20px; margin-top: 10px;">
-              <h4 style="font-size: 15px; font-weight: 700; margin-bottom: 8px;">Mô tả sản phẩm:</h4>
-              <p id="detailDescription" style="font-size: 14px; color: var(--text-muted); line-height: 1.6;"></p>
-            </div>
-          </div>
+        <div class="footer-col">
+          <h4>Tài khoản</h4>
+          <a href="#/account/orders" class="link-lux">Đơn mua</a>
+          <a href="#/account/addresses" class="link-lux">Sổ địa chỉ</a>
+          <a href="#/sell" class="link-lux">Kênh người bán</a>
+          <a href="/api/docs/" target="_blank" rel="noopener" class="link-lux">Tài liệu API (Swagger)</a>
         </div>
-      </section>
-
-      <!-- ==========================================
-           MÀN HÌNH 4: CHI TIẾT GIỎ HÀNG
-           ========================================== -->
-      <section id="view-cart" class="view-section">
-        <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-          <span>🛒</span> Giỏ Hàng Của Bạn
-        </h2>
-
-        <!-- Khung khi giỏ rỗng -->
-        <div id="cartEmptyView" style="display: none; background: #fff; padding: 60px 20px; text-align: center; border-radius: var(--radius-md);">
-          <p style="font-size: 48px; margin-bottom: 12px;">🛍️</p>
-          <p style="font-size: 16px; font-weight: 600;">Giỏ hàng của bạn đang trống</p>
-          <button class="btn-primary-block" style="max-width: 200px; margin: 20px auto 0;" onclick="navigate('home')">
-            Mua sắm ngay
-          </button>
-        </div>
-
-        <!-- Bảng danh sách sản phẩm trong giỏ -->
-        <div id="cartTableWrapper" class="cart-table-wrapper">
-          <table class="cart-table">
-            <thead>
-              <tr>
-                <th style="width: 40px;">
-                  <input id="cartCheckAll" type="checkbox" onchange="toggleSelectAllCart(this.checked)" />
-                </th>
-                <th>Sản phẩm</th>
-                <th style="width: 140px;">Đơn giá</th>
-                <th style="width: 140px;">Số lượng</th>
-                <th style="width: 160px;">Số tiền</th>
-                <th style="width: 70px;">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody id="cartTableBody">
-              <!-- Render động từng dòng sản phẩm -->
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Thanh tổng kết cố định đáy màn hình (Sticky Bar) -->
-        <div id="cartStickyBar" class="cart-sticky-bar">
-          <div class="container sticky-bar-inner">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span style="font-size: 14px; color: var(--text-muted);">AuraMall bảo đảm thanh toán an toàn 100%</span>
-            </div>
-            <div class="sticky-bar-right">
-              <div>
-                <span class="sticky-total-label">Tổng thanh toán <span id="stickySelectedCount">(chọn 0 sản phẩm)</span>:</span>
-                <span id="stickyTotalPrice" class="sticky-total-price">0 ₫</span>
-              </div>
-              <button class="btn-checkout-prominent" onclick="proceedToCheckout()">
-                Mua Hàng
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ==========================================
-           MÀN HÌNH 5: THANH TOÁN (LUỒNG 2: POST /api/orders)
-           ========================================== -->
-      <section id="view-checkout" class="view-section">
-        <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 20px;">
-          Thanh Toán Đơn Hàng
-        </h2>
-
-        <!-- Khối 1: Địa chỉ nhận hàng -->
-        <div class="checkout-card">
-          <div class="checkout-heading">
-            <span>📍</span> Địa Chỉ Nhận Hàng
-          </div>
-          <div id="checkoutAddressContent" class="checkout-address-box">
-            <!-- Nạp động từ sổ địa chỉ -->
-          </div>
-        </div>
-
-        <!-- Khối 2: Danh sách sản phẩm thanh toán (read-only) -->
-        <div class="checkout-card">
-          <div class="checkout-heading">
-            <span>📦</span> Sản Phẩm Mua
-          </div>
-          <div id="checkoutItemsList">
-            <!-- Nạp động -->
-          </div>
-        </div>
-
-        <!-- Khối 3: Lời nhắn cho người bán -->
-        <div class="checkout-card">
-          <div class="checkout-heading">
-            <span>📝</span> Lời Nhắn Cho Người Bán
-          </div>
-          <input
-            id="checkoutBuyerNote"
-            type="text"
-            class="form-input"
-            placeholder="Lưu ý cho shipper (vd: giao giờ hành chính, gọi trước khi đến)..."
-          />
-        </div>
-
-        <!-- Khối 4: Phương thức thanh toán -->
-        <div class="checkout-card">
-          <div class="checkout-heading">
-            <span>💳</span> Phương Thức Thanh Toán
-          </div>
-          <div class="checkout-payment-methods">
-            <label class="payment-radio-label selected">
-              <input type="radio" name="paymentMethod" value="COD" checked />
-              <div>
-                <div style="font-weight: 600;">Thanh toán khi nhận hàng (COD)</div>
-                <div style="font-size: 12px; color: var(--text-muted);">Thanh toán bằng tiền mặt trực tiếp cho nhân viên giao vận.</div>
-              </div>
-            </label>
-            <label class="payment-radio-label">
-              <input type="radio" name="paymentMethod" value="BANK_TRANSFER" />
-              <div>
-                <div style="font-weight: 600;">Chuyển khoản ngân hàng (VietQR)</div>
-                <div style="font-size: 12px; color: var(--text-muted);">Quét mã QR chuyển khoản ngân hàng 24/7 an toàn, nhanh chóng.</div>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Khối 5: Tổng kết và nút đặt hàng -->
-        <div class="checkout-card">
-          <div class="checkout-heading">
-            <span>🧾</span> Tóm Tắt Chi Phí
-          </div>
-          <table class="checkout-summary-table">
-            <tr>
-              <td>Tổng tiền hàng:</td>
-              <td id="checkoutGoodsTotal">0 ₫</td>
-            </tr>
-            <tr>
-              <td>Phí vận chuyển:</td>
-              <td id="checkoutShippingFee">30.000 ₫</td>
-            </tr>
-            <tr class="checkout-final-row">
-              <td>Tổng thanh toán:</td>
-              <td id="checkoutFinalTotal">0 ₫</td>
-            </tr>
-          </table>
-          <button id="btnSubmitOrder" class="btn-primary-block" style="margin-top: 24px; padding: 14px;" onclick="handlePlaceOrder()">
-            ĐẶT HÀNG
-          </button>
-        </div>
-      </section>
-
-      <!-- ==========================================
-           MÀN HÌNH 6: TRUNG TÂM NGƯỜI DÙNG (ACCOUNT CENTER)
-           ========================================== -->
-      <section id="view-account" class="view-section">
-        <div class="account-layout">
-          <!-- Sidebar bên trái -->
-          <aside class="account-sidebar">
-            <div class="sidebar-user-header">
-              <img id="accountSidebarAvatar" class="sidebar-avatar" src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100" alt="avatar" />
-              <div>
-                <div id="accountSidebarName" class="sidebar-username">Người dùng</div>
-                <div class="sidebar-edit-link" onclick="switchAccountTab('profile')">
-                  ✏️ Sửa hồ sơ
-                </div>
-              </div>
-            </div>
-
-            <ul class="sidebar-nav-list">
-              <li class="sidebar-nav-item active" data-tab="profile" onclick="switchAccountTab('profile')">
-                <span>👤</span> Hồ sơ cá nhân
-              </li>
-              <li class="sidebar-nav-item" data-tab="addresses" onclick="switchAccountTab('addresses')">
-                <span>📍</span> Địa chỉ nhận hàng
-              </li>
-              <li class="sidebar-nav-item" data-tab="orders" onclick="switchAccountTab('orders')">
-                <span>📦</span> Đơn mua của tôi
-              </li>
-            </ul>
-          </aside>
-
-          <!-- Nội dung chính bên phải -->
-          <main class="account-content-card">
-            <!-- TAB 1: HỒ SƠ CÁ NHÂN -->
-            <div id="accountTabProfile">
-              <div class="account-card-header">
-                <div>
-                  <h3 class="account-card-title">Hồ Sơ Của Tôi</h3>
-                  <p class="account-card-desc">Quản lý thông tin hồ sơ để bảo mật tài khoản</p>
-                </div>
-              </div>
-
-              <form id="formProfile" class="profile-grid" onsubmit="handleSaveProfile(event)">
-                <!-- Cột trái: Form thông tin -->
-                <div class="profile-form-column">
-                  <div class="form-group">
-                    <label class="form-label">Tên đăng nhập</label>
-                    <input id="profileUsername" type="text" class="form-input" disabled style="background: #f1f5f9; cursor: not-allowed;" />
-                    <span style="font-size: 11px; color: var(--text-muted);">Tên đăng nhập cố định để đảm bảo định danh tài khoản.</span>
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" for="profileEmail">Email</label>
-                    <input id="profileEmail" type="email" class="form-input" required />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" for="profilePhone">Số điện thoại</label>
-                    <input id="profilePhone" type="tel" class="form-input" placeholder="0969795794" required />
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label">Giới tính</label>
-                    <div style="display: flex; gap: 24px; padding-top: 6px;">
-                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="radio" name="profileGender" value="nam" checked /> Nam
-                      </label>
-                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="radio" name="profileGender" value="nu" /> Nữ
-                      </label>
-                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="radio" name="profileGender" value="khac" /> Khác
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" for="profileBirthday">Ngày sinh</label>
-                    <input id="profileBirthday" type="date" class="form-input" />
-                  </div>
-
-                  <button type="submit" class="btn-primary-block" style="max-width: 140px; margin-top: 10px;">
-                    Lưu Thay Đổi
-                  </button>
-                </div>
-
-                <!-- Cột phải: Khu vực Avatar -->
-                <div class="avatar-upload-box">
-                  <img id="profileAvatarBig" class="avatar-big-preview" src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300" alt="avatar" />
-                  <input id="avatarFileInput" type="file" accept="image/png, image/jpeg, image/jpg" style="display: none;" onchange="handleAvatarFileSelect(event)" />
-                  <button type="button" class="btn-upload-file" onclick="document.getElementById('avatarFileInput').click()">
-                    Chọn ảnh
-                  </button>
-                  <p class="avatar-rules-text">
-                    Dung lượng file tối đa 2MB.<br />Định dạng: .PNG, .JPEG
-                  </p>
-                </div>
-              </form>
-            </div>
-
-            <!-- TAB 2: ĐỊA CHỈ NHẬN HÀNG -->
-            <div id="accountTabAddresses" style="display: none;">
-              <div class="account-card-header">
-                <div>
-                  <h3 class="account-card-title">Địa Chỉ Của Tôi</h3>
-                  <p class="account-card-desc">Quản lý địa chỉ giao hàng phục vụ thanh toán</p>
-                </div>
-                <button class="btn-primary-block" style="width: auto; padding: 8px 16px; font-size: 13px;" onclick="openAddressModal()">
-                  + Thêm địa chỉ mới
-                </button>
-              </div>
-              <div id="addressListContainer">
-                <!-- Render động -->
-              </div>
-            </div>
-
-            <!-- TAB 3: ĐƠN MUA -->
-            <div id="accountTabOrders" style="display: none;">
-              <div class="account-card-header">
-                <div>
-                  <h3 class="account-card-title">Đơn Mua Của Tôi</h3>
-                  <p class="account-card-desc">Tra cứu lại tất cả các đơn hàng đã đặt thành công</p>
-                </div>
-              </div>
-              <div id="ordersListContainer">
-                <!-- Render động -->
-              </div>
-            </div>
-          </main>
-        </div>
-      </section>
-
-    </div>
-  </main>
-
-  <!-- ==========================================
-       MODALS & DIALOGS
-       ========================================== -->
-
-  <!-- 1. Modal Thêm/Sửa địa chỉ nhận hàng -->
-  <div id="addressEditModal" class="modal-overlay">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 id="modalAddressTitle" class="modal-title">Thêm địa chỉ mới</h3>
-        <button class="modal-close-btn" onclick="closeAddressModal()">✕</button>
-      </div>
-      <form id="formAddressModal" onsubmit="handleSaveAddress(event)">
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label" for="addrRecipientName">Họ và tên người nhận</label>
-            <input id="addrRecipientName" type="text" class="form-input" placeholder="Nguyễn Văn A" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="addrPhone">Số điện thoại</label>
-            <input id="addrPhone" type="tel" class="form-input" placeholder="0969795794" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="addrDetail">Địa chỉ chi tiết</label>
-            <textarea id="addrDetail" class="form-input" rows="3" placeholder="Số nhà, tên đường, phường/xã, quận/huyện, tỉnh/thành phố..." required></textarea>
-          </div>
-          <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
-              <input id="addrIsDefault" type="checkbox" />
-              <span>Thiết lập làm địa chỉ mặc định</span>
-            </label>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-upload-file" onclick="closeAddressModal()">Trở lại</button>
-          <button type="submit" class="btn-primary-block" style="width: auto; padding: 8px 24px;">Hoàn thành</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 2. Modal Đặt hàng thành công (Page 3 PDF) -->
-  <div id="orderSuccessModal" class="modal-overlay">
-    <div class="modal-card" style="text-align: center; padding: 24px;">
-      <div style="font-size: 54px; margin-bottom: 12px;">🎉</div>
-      <h3 style="font-size: 22px; font-weight: 800; color: #10b981; margin-bottom: 8px;">Đặt Hàng Thành Công!</h3>
-      <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 16px;">
-        Hệ thống đã ghi nhận giao dịch của bạn vào cơ sở dữ liệu.
-      </p>
-      <div style="background: #f8fafc; padding: 16px; border-radius: var(--radius-md); margin-bottom: 24px; text-align: left;">
-        <div style="font-size: 13px; margin-bottom: 6px;">
-          <strong>Mã đơn hàng:</strong> <span id="successOrderCode" style="color: var(--primary); font-weight: 700;">AUR-XXXX</span>
-        </div>
-        <div style="font-size: 13px;">
-          <strong>Tổng thanh toán:</strong> <span id="successOrderTotal" style="color: var(--price-red); font-weight: 700;">0 ₫</span>
+        <div class="footer-col">
+          <h4>Hỗ trợ</h4>
+          <span>Hotline 1900 8899</span>
+          <span>Miễn phí giao hàng từ 500.000 ₫</span>
+          <span>Đổi trả trong 30 ngày</span>
         </div>
       </div>
-      <div style="display: flex; gap: 12px; justify-content: center;">
-        <button class="btn-upload-file" style="padding: 10px 20px;" onclick="closeOrderSuccessModal(false)">
-          Về trang chủ
-        </button>
-        <button class="btn-primary-block" style="width: auto; padding: 10px 24px;" onclick="closeOrderSuccessModal(true)">
-          Xem chi tiết đơn hàng
-        </button>
+      <div class="footer-bottom">
+        <span>© 2026 AuraMall. Đề tài 07: Thiết kế hạ tầng CNTT cho hệ thống TMĐT.</span>
+        <span>Ảnh sản phẩm: Unsplash &amp; Wikimedia Commons (CC BY / BY-SA), ghi nguồn trong images/products/CREDITS.md</span>
       </div>
     </div>
-  </div>
+  </footer>
 
-  <!-- 3. Modal xác nhận chung (Confirm dialog) -->
-  <div id="genericConfirmModal" class="modal-overlay">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 id="confirmModalTitle" class="modal-title">Xác nhận</h3>
-      </div>
-      <div class="modal-body">
-        <p id="confirmModalMsg" style="font-size: 14px; color: var(--text-main);"></p>
-      </div>
-      <div class="modal-footer">
-        <button id="confirmModalBtnCancel" type="button" class="btn-upload-file">Hủy</button>
-        <button id="confirmModalBtnOk" type="button" class="btn-primary-block" style="width: auto; padding: 8px 24px;">OK</button>
-      </div>
-    </div>
-  </div>
+  <div id="modalRoot"></div>
+  <div id="toastRoot" class="toast-root" aria-live="polite"></div>
 
-  <!-- Container thông báo Toast -->
-  <div id="toastContainer" class="toast-container"></div>
-
-  <!-- Scripts -->
   <script src="/app.js"></script>
-  <script>
-    function searchInputHot(text) {
-      const input = document.getElementById('headerSearchInput');
-      if (input) {
-        input.value = text;
-        state.filters.q = text;
-        state.filters.page = 1;
-        navigate('home');
-        loadProducts();
-      }
-    }
-  </script>
 </body>
 </html>

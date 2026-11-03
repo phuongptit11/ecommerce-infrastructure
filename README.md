@@ -43,6 +43,12 @@ Hệ thống mô phỏng kiến trúc hạ tầng TMĐT phân vùng mạng 3 t�
 docker compose up -d --build
 ```
 
+Sau khi khởi động:
+* **Trang web:** [http://localhost](http://localhost)
+* **Tài liệu API (Swagger UI):** [http://localhost/api/docs/](http://localhost/api/docs/), bấm **Authorize** và dán token lấy từ `POST /api/auth/login` để thử các API cần đăng nhập.
+
+> CSDL tạo từ bản cũ vẫn dùng được: khi khởi động, backend tự thêm cột mới (`products.seller_id`) và đổi ảnh mẫu cũ (link Unsplash, một số đã hỏng) sang ảnh lưu tại `frontend/images/products/`.
+
 Để kiểm tra trạng thái các container:
 ```bash
 docker compose ps
@@ -63,7 +69,12 @@ docker compose down
 
 ## 3. CÁC MÀN HÌNH & NGHIỆP VỤ HỆ THỐNG (THEO BẢN THIẾT KẾ AURAMALL)
 
-Hệ thống được thiết kế hoàn thiện gồm 6 phân hệ màn hình chuẩn TMĐT:
+Giao diện lấy cảm hứng từ phong cách trang Lexus: tông đen / than / trắng với điểm nhấn vàng đồng, chữ hoa giãn rộng (font Montserrat + Be Vietnam Pro, hỗ trợ tiếng Việt), khung ảnh cắt chéo, banner trình diễn sản phẩm, menu "Sản phẩm" dạng mega menu theo danh mục (giống menu "Mẫu xe"), hiệu ứng màn chắn nghiêng khi chuyển trang, nội dung hiện dần khi cuộn và vệt sáng lướt qua nút khi rê chuột.
+
+* Ứng dụng một trang (`frontend/index.html`, `app.js`, `styles.css`), định tuyến bằng hash: `#/`, `#/products`, `#/product/:id`, `#/cart`, `#/checkout`, `#/login`, `#/register`, `#/account/:tab`, `#/sell` nên nút Back/F5 hoạt động bình thường.
+* Hiển thị tốt trên điện thoại (menu và bộ lọc dạng ngăn kéo), tôn trọng chế độ giảm chuyển động của hệ điều hành.
+
+Hệ thống gồm 7 phân hệ màn hình chuẩn TMĐT:
 
 ### 1. Phân hệ Xác thực (Auth: Đăng ký & Đăng nhập)
 * **Bố cục 2 cột**: Cột trái là banner giới thiệu Flash Sale và các ưu đãi đặc quyền; cột phải là Form thao tác.
@@ -79,7 +90,8 @@ Hệ thống được thiết kế hoàn thiện gồm 6 phân hệ màn hình c
 ### 2. Trang Chủ & Danh Mục Sản Phẩm (Luồng Nghiệp vụ 1: `GET /api/products`)
 * **Header**:
   * Logo thương hiệu `auramall`.
-  * Thanh tìm kiếm từ khóa với gợi ý từ khóa hot.
+  * Menu "Sản phẩm": mỗi danh mục là một tab, hiển thị sản phẩm kèm "Giá từ" và ô ảnh cắt chéo dẫn tới danh mục.
+  * Tìm kiếm: bảng tìm kiếm với gợi ý từ khóa hot và kết quả hiện ngay khi gõ.
   * Icon giỏ hàng với Badge số lượng; hover hiển thị Popover xem nhanh 3 sản phẩm gần nhất kèm nút "Xem giỏ hàng".
   * Khu vực tài khoản: Hover hiển thị menu Đăng nhập/Đăng ký khi chưa login; hiển thị Tên, Avatar và menu điều hướng khi đã login.
 * **Cột bên trái (Bộ lọc)**:
@@ -126,11 +138,18 @@ Hệ thống được thiết kế hoàn thiện gồm 6 phân hệ màn hình c
 * **Tab Đơn mua**:
   * Tra cứu danh sách tất cả các đơn hàng đã đặt thành công.
 
+### 7. Kênh Người Bán (Đăng bán sản phẩm)
+* Trang `#/sell`: đăng bán sản phẩm mới với tên, danh mục, giá bán, giá gốc (tự tính % giảm), tồn kho, link ảnh chính, ảnh phụ và mô tả; **xem trước thẻ sản phẩm** ngay khi nhập.
+* Tab "Sản phẩm của tôi" trong trung tâm tài khoản: danh sách sản phẩm đã đăng, sửa, xóa (sản phẩm đã có đơn hàng thì không xóa được, chỉ đặt tồn kho về 0).
+* API: `POST/PUT/DELETE /api/products`, `GET /api/user/products`, chỉ chủ sản phẩm mới được sửa/xóa (mã 403 nếu không phải).
+
 ---
 
 ## 4. TÀI LIỆU KỸ THUẬT & HỢP ĐỒNG API
 
 * **Hợp đồng API chi tiết:** [docs/api-contract.md](docs/api-contract.md)
+* **Swagger UI:** [http://localhost/api/docs/](http://localhost/api/docs/) (đặc tả OpenAPI 3.0 trong [backend/openapi.js](backend/openapi.js))
+* **Ảnh sản phẩm & nguồn ảnh:** [frontend/images/products/CREDITS.md](frontend/images/products/CREDITS.md)
 * **Kịch bản kiểm thử API tự động (REST Client):** [docs/api-test.http](docs/api-test.http)
 * **Sơ đồ kiến trúc hạ tầng Draw.io:** [docs/architecture.drawio](docs/architecture.drawio)
 * **Kịch bản sao lưu CSDL:** `bash scripts/backup.sh`
