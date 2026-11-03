@@ -3,6 +3,7 @@
 const express = require('express');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const crypto = require('crypto');
 const { Pool, types } = require('pg');
 
 // Cột NUMERIC (giá tiền) và COUNT(*) mặc định được trả về dạng chuỗi, đổi sang Number để JSON trả về dạng số
@@ -13,10 +14,9 @@ const PORT = Number(process.env.PORT) || 5000;
 const MAX_INT = 2147483647; // giới hạn kiểu INT của PostgreSQL
 const MAX_PAGE = 100000;
 const MAX_ORDER_QUANTITY = 100;
-const PRODUCT_COLUMNS = 'id, name, price, stock, created_at';
+const JWT_SECRET = process.env.JWT_SECRET || 'auramall_jwt_secret_ecommerce_2026';
 
-// Connection pool: tái sử dụng kết nối thay vì mở mới cho mỗi request.
-// Khi scale N bản sao backend, tổng kết nối là N x DB_POOL_MAX, phải nhỏ hơn max_connections (100) của PostgreSQL.
+// Connection pool PostgreSQL
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 5432,
@@ -32,6 +32,7 @@ pool.on('error', (err) => {
   console.error('Lỗi kết nối CSDL:', err.message);
 });
 
+// Custom Error Class
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -39,7 +40,88 @@ class HttpError extends Error {
   }
 }
 
-// Nhận số nguyên dạng number hoặc chuỗi chữ số (ô input của frontend gửi lên dạng chuỗi)
+// ==========================================
+// CÁC HÀM TIỆN ÍCH AUTH & MẬT KHẨU (NATIVE CRYPTO)
+// ==========================================
+function hashPassword(password, salt) {
+  const actualSalt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, actualSalt, 10000, 64, 'sha512').toString('hex');
+  return `${actualSalt}:${hash}`;
+}
+
+function verifyPassword(password, storedPasswordHash) {
+  if (!storedPasswordHash || !storedPasswordHash.includes(':')) return false;
+  const [salt, originalHash] = storedPasswordHash.split(':');
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+  return hash === originalHash;
+}
+
+function generateToken(payload, expiresInSeconds = 86400 * 7) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+  const fullPayload = { ...payload, exp };
+
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
+
+  const signature = crypto
+    .createHmac('sha256', JWT_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
+
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const expectedSignature = crypto
+    .createHmac('sha256', JWT_SECRET)
+    .update(`${headerB64}.${payloadB64}`)
+    .digest('base64url');
+
+  if (signatureB64 !== expectedSignature) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      return null; // Token hết hạn
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// Middleware xác thực JWT
+async function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+  if (token) {
+    const decoded = verifyToken(token);
+    if (decoded && decoded.userId) {
+      req.user = decoded;
+      return next();
+    }
+  }
+
+  // Nếu không có token hợp lệ, req.user là null nhưng không block ở middleware này
+  req.user = null;
+  next();
+}
+
+function requireAuth(req, res, next) {
+  if (!req.user || !req.user.userId) {
+    return res.status(401).json({ status: 'fail', message: 'Vui lòng đăng nhập để thực hiện thao tác này.' });
+  }
+  next();
+}
+
+// Helper kiểm tra số nguyên
 function toInteger(value) {
   if (typeof value === 'number') return Number.isInteger(value) ? value : NaN;
   if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value.trim());
@@ -62,22 +144,40 @@ function parseId(value, name) {
   return id;
 }
 
-function validateOrder(body) {
-  const { productId, quantity } = body ?? {};
-  return {
-    productId: parseId(productId, 'productId'),
-    quantity: quantity === undefined ? 1 : parseInteger(quantity, 'quantity', 1, MAX_ORDER_QUANTITY),
-  };
+// Format che email dạng ab***@gmail.com
+function maskEmail(email) {
+  if (!email || !email.includes('@')) return email;
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) return `${local}***@${domain}`;
+  return `${local.substring(0, 2)}***@${domain}`;
 }
 
 const app = express();
 
-app.set('trust proxy', 1); // chạy sau Nginx: lấy IP thật của khách từ X-Forwarded-For
-app.use(helmet());
-// Log mỗi request kèm thời gian xử lý để giám sát; bỏ qua /health vì Docker gọi liên tục
-app.use(morgan('short', { skip: (req) => req.path === '/health' }));
-app.use(express.json({ limit: '10kb' }));
+app.set('trust proxy', 1);
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:', 'http:'],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        connectSrc: ["'self'", 'http://localhost:*', 'https:'],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
+app.use(morgan('short', { skip: (req) => req.path === '/health' }));
+app.use(express.json({ limit: '10mb' })); // Hỗ trợ upload ảnh đại diện base64 đến 2MB
+app.use(authenticateToken);
+
+// ==========================================
+// 1. HEALTHCHECK
+// ==========================================
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -93,70 +193,464 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// ==========================================
+// 2. AUTHENTICATION (ĐĂNG KÝ, ĐĂNG NHẬP, PROFILE)
+// ==========================================
+
+// Màn Đăng ký
+app.post('/api/auth/register', async (req, res) => {
+  const { username, email, phone, password, confirmPassword } = req.body || {};
+
+  // Validate các trường bắt buộc
+  if (!username || !email || !phone || !password) {
+    throw new HttpError(400, 'Vui lòng điền đầy đủ tất cả các trường thông tin.');
+  }
+
+  const cleanUsername = String(username).trim();
+  const cleanEmail = String(email).trim().toLowerCase();
+  const cleanPhone = String(phone).trim();
+
+  // Validate tên đăng nhập
+  if (!/^[a-zA-Z0-9_]{3,30}$/.test(cleanUsername)) {
+    throw new HttpError(400, 'Tên đăng nhập phải từ 3 đến 30 ký tự (chỉ bao gồm chữ, số và dấu gạch dưới).');
+  }
+
+  // Validate email
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    throw new HttpError(400, 'Địa chỉ email không đúng định dạng.');
+  }
+
+  // Validate số điện thoại (10-11 chữ số theo PDF)
+  if (!/^(0|\+84)[0-9]{9,10}$/.test(cleanPhone)) {
+    throw new HttpError(400, 'Số điện thoại phải gồm 10 hoặc 11 chữ số (vd: 0969795794).');
+  }
+
+  // Validate mật khẩu: tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số (theo PDF màn 1)
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+  if (!passwordRegex.test(password)) {
+    throw new HttpError(400, 'Mật khẩu tối thiểu 8 ký tự, phải bao gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số.');
+  }
+
+  // Kiểm tra khớp mật khẩu
+  if (confirmPassword !== undefined && password !== confirmPassword) {
+    throw new HttpError(400, 'Mật khẩu nhập lại không khớp.');
+  }
+
+  // Kiểm tra trùng username, email
+  const existing = await pool.query(
+    'SELECT username, email FROM users WHERE username = $1 OR email = $2',
+    [cleanUsername, cleanEmail]
+  );
+  if (existing.rowCount > 0) {
+    if (existing.rows[0].username === cleanUsername) {
+      throw new HttpError(400, 'Tên đăng nhập đã được sử dụng.');
+    }
+    throw new HttpError(400, 'Email đã được đăng ký trong hệ thống.');
+  }
+
+  const passwordHash = hashPassword(password);
+  const insertUser = await pool.query(
+    `INSERT INTO users (username, email, phone, password_hash)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, username, email, phone, gender, birthday, avatar_url, created_at`,
+    [cleanUsername, cleanEmail, cleanPhone, passwordHash]
+  );
+
+  const newUser = insertUser.rows[0];
+  const token = generateToken({ userId: newUser.id, username: newUser.username });
+
+  res.status(201).json({
+    status: 'success',
+    message: 'Đăng ký tài khoản thành công!',
+    token,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      phone: newUser.phone,
+      gender: newUser.gender,
+      birthday: newUser.birthday,
+      avatarUrl: newUser.avatar_url,
+    },
+  });
+});
+
+// Màn Đăng nhập
+app.post('/api/auth/login', async (req, res) => {
+  const { login, password, remember } = req.body || {};
+
+  if (!login || !password) {
+    throw new HttpError(400, 'Vui lòng nhập tên đăng nhập/email/số điện thoại và mật khẩu.');
+  }
+
+  const cleanLogin = String(login).trim();
+
+  // Tìm kiếm theo username, email hoặc số điện thoại
+  const result = await pool.query(
+    `SELECT id, username, email, phone, password_hash, gender, birthday, avatar_url
+     FROM users
+     WHERE username = $1 OR email = $1 OR phone = $1`,
+    [cleanLogin]
+  );
+
+  if (result.rowCount === 0) {
+    throw new HttpError(401, 'Tài khoản hoặc mật khẩu không chính xác.');
+  }
+
+  const user = result.rows[0];
+  const isValid = verifyPassword(password, user.password_hash);
+  if (!isValid) {
+    throw new HttpError(401, 'Tài khoản hoặc mật khẩu không chính xác.');
+  }
+
+  // Thời gian token: 30 ngày nếu ghi nhớ đăng nhập, 2 ngày nếu không
+  const expiresInSeconds = remember ? 86400 * 30 : 86400 * 2;
+  const token = generateToken({ userId: user.id, username: user.username }, expiresInSeconds);
+
+  res.json({
+    status: 'success',
+    message: 'Đăng nhập thành công!',
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      gender: user.gender,
+      birthday: user.birthday,
+      avatarUrl: user.avatar_url,
+    },
+  });
+});
+
+// Lấy thông tin tài khoản hiện tại (Me)
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, username, email, phone, gender, birthday, avatar_url, created_at
+     FROM users WHERE id = $1`,
+    [req.user.userId]
+  );
+
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy người dùng.');
+  }
+
+  const user = result.rows[0];
+  res.json({
+    status: 'success',
+    data: {
+      ...user,
+      maskedEmail: maskEmail(user.email),
+    },
+  });
+});
+
+// ==========================================
+// 3. DANH MỤC (CATEGORIES)
+// ==========================================
+app.get('/api/categories', async (req, res) => {
+  const result = await pool.query(
+    `SELECT c.id, c.name, c.slug, c.icon, c.display_order,
+            COUNT(p.id)::int as product_count
+     FROM categories c
+     LEFT JOIN products p ON c.id = p.category_id
+     GROUP BY c.id
+     ORDER BY c.display_order ASC, c.id ASC`
+  );
+
+  res.json({
+    status: 'success',
+    total: result.rowCount,
+    data: result.rows,
+  });
+});
+
+// ==========================================
+// 4. SẢN PHẨM (PRODUCTS) - LUỒNG NGHIỆP VỤ 1 (GET /api/products)
+// ==========================================
+const DETAILED_PRODUCT_COLUMNS = `
+  p.id, p.name, p.slug, p.category_id, p.price, p.original_price,
+  p.discount_percent, p.stock, p.rating, p.review_count, p.sold_count,
+  p.is_flash_sale, p.image_url, p.thumbnails, p.description, p.created_at,
+  c.name AS category_name, c.slug AS category_slug
+`;
+
 app.get('/api/products', async (req, res) => {
   const page = req.query.page === undefined ? 1 : parseInteger(req.query.page, 'page', 1, MAX_PAGE);
   const limit = req.query.limit === undefined ? 20 : parseInteger(req.query.limit, 'limit', 1, 100);
 
-  const [items, count] = await Promise.all([
-    pool.query(`SELECT ${PRODUCT_COLUMNS} FROM products ORDER BY id LIMIT $1 OFFSET $2`, [limit, (page - 1) * limit]),
-    pool.query('SELECT COUNT(*) AS total FROM products'),
-  ]);
-  const totalItems = count.rows[0].total;
+  // Điều kiện lọc
+  const whereClauses = [];
+  const params = [];
+  let paramIndex = 1;
+
+  // Lọc theo danh mục
+  if (req.query.category) {
+    const catVal = String(req.query.category).trim();
+    if (/^\d+$/.test(catVal)) {
+      whereClauses.push(`p.category_id = $${paramIndex++}`);
+      params.push(Number(catVal));
+    } else {
+      whereClauses.push(`c.slug = $${paramIndex++}`);
+      params.push(catVal);
+    }
+  }
+
+  // Lọc theo khoảng giá (từ - đến)
+  if (req.query.minPrice !== undefined && req.query.minPrice !== '') {
+    const minP = parseFloat(req.query.minPrice);
+    if (!isNaN(minP) && minP >= 0) {
+      whereClauses.push(`p.price >= $${paramIndex++}`);
+      params.push(minP);
+    }
+  }
+
+  if (req.query.maxPrice !== undefined && req.query.maxPrice !== '') {
+    const maxP = parseFloat(req.query.maxPrice);
+    if (!isNaN(maxP) && maxP >= 0) {
+      whereClauses.push(`p.price <= $${paramIndex++}`);
+      params.push(maxP);
+    }
+  }
+
+  // Lọc theo số sao đánh giá (5 sao, 4 sao trở lên...)
+  if (req.query.minRating !== undefined && req.query.minRating !== '') {
+    const minR = parseFloat(req.query.minRating);
+    if (!isNaN(minR) && minR >= 0 && minR <= 5) {
+      whereClauses.push(`p.rating >= $${paramIndex++}`);
+      params.push(minR);
+    }
+  }
+
+  // Lọc Flash Sale
+  if (req.query.flashSale === 'true' || req.query.flashSale === '1') {
+    whereClauses.push(`p.is_flash_sale = true`);
+  }
+
+  // Tìm kiếm từ khóa (Search Bar)
+  if (req.query.q) {
+    const keyword = `%${String(req.query.q).trim()}%`;
+    whereClauses.push(`(p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`);
+    params.push(keyword);
+    paramIndex++;
+  }
+
+  // Sắp xếp
+  // - phổ biến: rating DESC, sold_count DESC
+  // - mới nhất: p.created_at DESC
+  // - bán chạy: p.sold_count DESC
+  // - giá thấp đến cao: p.price ASC
+  // - giá cao đến thấp: p.price DESC
+  let orderByClause = 'p.id ASC';
+  const sort = req.query.sort;
+  if (sort === 'popular') {
+    orderByClause = 'p.rating DESC, p.sold_count DESC';
+  } else if (sort === 'newest') {
+    orderByClause = 'p.created_at DESC, p.id DESC';
+  } else if (sort === 'best_seller') {
+    orderByClause = 'p.sold_count DESC';
+  } else if (sort === 'price_asc') {
+    orderByClause = 'p.price ASC';
+  } else if (sort === 'price_desc') {
+    orderByClause = 'p.price DESC';
+  }
+
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  // Đếm tổng sản phẩm theo điều kiện
+  const countSql = `SELECT COUNT(*) AS total FROM products p LEFT JOIN categories c ON p.category_id = c.id ${whereSql}`;
+  const countResult = await pool.query(countSql, params);
+  const totalItems = countResult.rows[0].total;
+
+  // Truy vấn lấy dữ liệu với LIMIT và OFFSET
+  const limitParamIndex = paramIndex++;
+  const offsetParamIndex = paramIndex++;
+  const dataParams = [...params, limit, (page - 1) * limit];
+
+  const dataSql = `
+    SELECT ${DETAILED_PRODUCT_COLUMNS}
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    ${whereSql}
+    ORDER BY ${orderByClause}
+    LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
+  `;
+
+  const items = await pool.query(dataSql, dataParams);
 
   res.json({
     status: 'success',
     total: items.rowCount,
     data: items.rows,
-    pagination: { page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit) || 1,
+    },
   });
 });
 
 app.get('/api/products/:id', async (req, res) => {
   const id = parseId(req.params.id, 'id');
-  const result = await pool.query(`SELECT ${PRODUCT_COLUMNS} FROM products WHERE id = $1`, [id]);
+  const result = await pool.query(
+    `SELECT ${DETAILED_PRODUCT_COLUMNS}
+     FROM products p
+     LEFT JOIN categories c ON p.category_id = c.id
+     WHERE p.id = $1`,
+    [id]
+  );
+
   if (result.rowCount === 0) {
     throw new HttpError(404, 'Không tìm thấy sản phẩm.');
   }
+
   res.json({ status: 'success', data: result.rows[0] });
 });
 
+// ==========================================
+// 5. ĐƠN HÀNG (ORDERS) - LUỒNG NGHIỆP VỤ 2 (POST /api/orders)
+// ==========================================
+function parseOrderItems(body) {
+  // Hỗ trợ cả 2 định dạng:
+  // 1. Single item (k6 load test & script kiểm thử cũ): { productId: 1, quantity: 2 }
+  // 2. Multi-item cart checkout (PDF screens): { items: [{ productId, quantity }], ... }
+  if (Array.isArray(body?.items) && body.items.length > 0) {
+    return body.items.map((it, idx) => ({
+      productId: parseId(it.productId, `items[${idx}].productId`),
+      quantity: it.quantity === undefined ? 1 : parseInteger(it.quantity, `items[${idx}].quantity`, 1, MAX_ORDER_QUANTITY),
+    }));
+  }
+
+  const { productId, quantity } = body || {};
+  if (productId !== undefined) {
+    return [
+      {
+        productId: parseId(productId, 'productId'),
+        quantity: quantity === undefined ? 1 : parseInteger(quantity, 'quantity', 1, MAX_ORDER_QUANTITY),
+      },
+    ];
+  }
+
+  throw new HttpError(400, 'Dữ liệu đơn hàng không hợp lệ, cần ít nhất 1 sản phẩm.');
+}
+
 app.post('/api/orders', async (req, res) => {
-  const { productId, quantity } = validateOrder(req.body);
+  const itemsToBuy = parseOrderItems(req.body);
+  const recipientName = req.body.recipientName || 'Khách hàng';
+  const recipientPhone = req.body.recipientPhone || '0969795794';
+  const shippingAddress = req.body.shippingAddress || 'Địa chỉ nhận hàng mặc định';
+  const paymentMethod = req.body.paymentMethod === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : 'COD';
+  const buyerNote = req.body.note || req.body.buyerNote || '';
+  const userId = req.user ? req.user.userId : (toInteger(req.body.userId) || 1); // fallback user 1
+
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    // Trừ kho nguyên tử: chỉ thành công khi còn đủ hàng, dòng sản phẩm bị khóa đến khi COMMIT,
-    // nên nhiều khách đặt cùng lúc cũng không bán vượt tồn kho.
-    const updated = await client.query(
-      'UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING id, name, price, stock',
-      [quantity, productId]
-    );
-    if (updated.rowCount === 0) {
-      const exists = await client.query('SELECT 1 FROM products WHERE id = $1', [productId]);
-      throw exists.rowCount === 0
-        ? new HttpError(404, 'Không tìm thấy sản phẩm.')
-        : new HttpError(409, 'Sản phẩm đã hết hàng hoặc số lượng tồn kho không đủ để đáp ứng.');
+    let totalGoodsPrice = 0;
+    const processedItems = [];
+
+    // Duyệt qua từng sản phẩm để trừ kho nguyên tử
+    // Sắp xếp ID tăng dần để tránh Deadlock khi nhiều request trừ kho các sản phẩm giống nhau
+    const sortedItems = [...itemsToBuy].sort((a, b) => a.productId - b.productId);
+
+    for (const item of sortedItems) {
+      const updated = await client.query(
+        'UPDATE products SET stock = stock - $1, sold_count = sold_count + $1 WHERE id = $2 AND stock >= $1 RETURNING id, name, price, stock, image_url',
+        [item.quantity, item.productId]
+      );
+
+      if (updated.rowCount === 0) {
+        // Kiểm tra xem sản phẩm có tồn tại không hay do hết hàng
+        const exists = await client.query('SELECT 1 FROM products WHERE id = $1', [item.productId]);
+        if (exists.rowCount === 0) {
+          throw new HttpError(404, `Không tìm thấy sản phẩm có ID ${item.productId}.`);
+        }
+        // Thông báo lỗi chính xác theo yêu cầu phân tích màn hình (Page 3 PDF)
+        throw new HttpError(400, 'rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!');
+      }
+
+      const prod = updated.rows[0];
+      const subtotal = prod.price * item.quantity;
+      totalGoodsPrice += subtotal;
+
+      processedItems.push({
+        productId: prod.id,
+        name: prod.name,
+        price: prod.price,
+        quantity: item.quantity,
+        subtotal,
+        imageUrl: prod.image_url,
+        remainingStock: prod.stock,
+      });
     }
 
-    const product = updated.rows[0];
-    const inserted = await client.query(
-      'INSERT INTO orders (product_id, quantity, total_price) VALUES ($1, $2, $3) RETURNING id, total_price, created_at',
-      [productId, quantity, product.price * quantity]
+    // Phí vận chuyển: mặc định 30,000 VND, miễn phí nếu đơn hàng từ 500,000 VND
+    const shippingFee = totalGoodsPrice >= 500000 ? 0 : 30000;
+    const finalTotal = totalGoodsPrice + shippingFee;
+
+    // Sinh mã đơn hàng ngẫu nhiên chuyên nghiệp: vd AUR-20261103-A8F2
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomHex = crypto.randomBytes(2).toString('hex').toUpperCase();
+    const orderCode = `AUR-${dateStr}-${randomHex}`;
+
+    // Lưu vào bảng orders (giữ product_id và quantity của item đầu tiên để tương thích test k6 và query cũ)
+    const firstItem = processedItems[0];
+    const orderResult = await client.query(
+      `INSERT INTO orders (
+        order_code, user_id, product_id, quantity, total_price, shipping_fee, final_total,
+        recipient_name, recipient_phone, shipping_address, payment_method, buyer_note, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'CREATED')
+      RETURNING id, order_code, total_price, shipping_fee, final_total, status, created_at`,
+      [
+        orderCode,
+        userId,
+        firstItem.productId,
+        firstItem.quantity,
+        totalGoodsPrice,
+        shippingFee,
+        finalTotal,
+        recipientName,
+        recipientPhone,
+        shippingAddress,
+        paymentMethod,
+        buyerNote,
+      ]
     );
+
+    const createdOrder = orderResult.rows[0];
+
+    // Lưu chi tiết từng sản phẩm vào order_items
+    for (const item of processedItems) {
+      await client.query(
+        `INSERT INTO order_items (order_id, product_id, product_name, product_image, quantity, unit_price, subtotal)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [createdOrder.id, item.productId, item.name, item.imageUrl, item.quantity, item.price, item.subtotal]
+      );
+    }
 
     await client.query('COMMIT');
 
-    const order = inserted.rows[0];
+    // Phản hồi HTTP 201 Created (Bao gồm cả các trường cũ cho k6 loadtest)
     res.status(201).json({
       status: 'success',
       message: 'Tạo đơn hàng thành công!',
-      orderId: order.id,
-      product: { id: product.id, name: product.name, remainingStock: product.stock },
-      quantity,
-      totalPrice: order.total_price,
-      createdAt: order.created_at,
+      orderId: createdOrder.id,
+      orderCode: createdOrder.order_code,
+      product: {
+        id: firstItem.productId,
+        name: firstItem.name,
+        remainingStock: firstItem.remainingStock,
+      },
+      items: processedItems,
+      quantity: firstItem.quantity,
+      totalPrice: createdOrder.total_price,
+      shippingFee: createdOrder.shipping_fee,
+      finalTotal: createdOrder.final_total,
+      paymentMethod,
+      createdAt: createdOrder.created_at,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -166,42 +660,591 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
+// Tra cứu danh sách đơn hàng
 app.get('/api/orders', async (req, res) => {
-  const result = await pool.query(
-    `SELECT o.id, o.quantity, o.total_price, o.status, o.created_at, p.name AS product_name
-     FROM orders o JOIN products p ON o.product_id = p.id
-     ORDER BY o.id DESC LIMIT 20`
-  );
+  const userId = req.user ? req.user.userId : (toInteger(req.query.userId) || null);
+
+  let querySql = `
+    SELECT o.id, o.order_code, o.quantity, o.total_price, o.shipping_fee, o.final_total,
+           o.recipient_name, o.recipient_phone, o.shipping_address, o.payment_method,
+           o.status, o.created_at, p.name AS product_name, p.image_url AS product_image,
+           COALESCE(json_agg(
+             json_build_object(
+               'productId', oi.product_id,
+               'name', oi.product_name,
+               'image', oi.product_image,
+               'quantity', oi.quantity,
+               'unitPrice', oi.unit_price,
+               'subtotal', oi.subtotal
+             )
+           ) FILTER (WHERE oi.id IS NOT NULL), '[]') AS items
+    FROM orders o
+    LEFT JOIN products p ON o.product_id = p.id
+    LEFT JOIN order_items oi ON o.id = oi.order_id
+  `;
+
+  const params = [];
+  if (userId) {
+    querySql += ` WHERE o.user_id = $1 `;
+    params.push(userId);
+  }
+
+  querySql += `
+    GROUP BY o.id, p.name, p.image_url
+    ORDER BY o.id DESC
+    LIMIT 50
+  `;
+
+  const result = await pool.query(querySql, params);
   res.json({ status: 'success', total: result.rowCount, data: result.rows });
 });
 
+// Tra cứu 1 đơn hàng cụ thể
+app.get('/api/orders/:id', async (req, res) => {
+  const id = parseId(req.params.id, 'id');
+  const result = await pool.query(
+    `SELECT o.*, COALESCE(json_agg(
+       json_build_object(
+         'productId', oi.product_id,
+         'name', oi.product_name,
+         'image', oi.product_image,
+         'quantity', oi.quantity,
+         'unitPrice', oi.unit_price,
+         'subtotal', oi.subtotal
+       )
+     ) FILTER (WHERE oi.id IS NOT NULL), '[]') AS items
+     FROM orders o
+     LEFT JOIN order_items oi ON o.id = oi.order_id
+     WHERE o.id = $1
+     GROUP BY o.id`,
+    [id]
+  );
+
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy đơn hàng.');
+  }
+
+  res.json({ status: 'success', data: result.rows[0] });
+});
+
+// ==========================================
+// 6. THÔNG TIN NGƯỜI DÙNG & SỔ ĐỊA CHỈ (USER PROFILE & ADDRESSES)
+// ==========================================
+
+// Lấy hồ sơ người dùng
+app.get('/api/user/profile', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1; // Fallback user mẫu nếu chưa đăng nhập
+
+  const result = await pool.query(
+    `SELECT id, username, email, phone, gender, birthday, avatar_url, created_at
+     FROM users WHERE id = $1`,
+    [userId]
+  );
+
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy thông tin người dùng.');
+  }
+
+  const user = result.rows[0];
+  res.json({
+    status: 'success',
+    data: {
+      ...user,
+      maskedEmail: maskEmail(user.email),
+    },
+  });
+});
+
+// Cập nhật hồ sơ người dùng (PUT /api/user/profile)
+app.put('/api/user/profile', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+  const { email, phone, gender, birthday, avatarUrl } = req.body || {};
+
+  // Validate email
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {
+    throw new HttpError(400, 'Địa chỉ email không hợp lệ.');
+  }
+
+  // Validate số điện thoại (10-11 chữ số theo PDF Page 3)
+  if (phone && !/^(0|\+84)[0-9]{9,10}$/.test(String(phone).trim())) {
+    throw new HttpError(400, 'Số điện thoại phải gồm 10 hoặc 11 chữ số đúng định dạng (vd: 0969795794).');
+  }
+
+  // Validate ngày sinh không vượt quá ngày hiện tại (PDF Page 3)
+  if (birthday) {
+    const bDate = new Date(birthday);
+    if (isNaN(bDate.getTime())) {
+      throw new HttpError(400, 'Ngày sinh không hợp lệ.');
+    }
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (bDate > today) {
+      throw new HttpError(400, 'Ngày sinh không được vượt quá ngày hiện tại.');
+    }
+  }
+
+  // Giới tính hợp lệ: nam, nu, khac
+  const validGenders = ['nam', 'nu', 'khac'];
+  const sanitizedGender = gender && validGenders.includes(gender.toLowerCase()) ? gender.toLowerCase() : undefined;
+
+  const updateResult = await pool.query(
+    `UPDATE users
+     SET email = COALESCE($1, email),
+         phone = COALESCE($2, phone),
+         gender = COALESCE($3, gender),
+         birthday = COALESCE($4, birthday),
+         avatar_url = COALESCE($5, avatar_url),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $6
+     RETURNING id, username, email, phone, gender, birthday, avatar_url, updated_at`,
+    [
+      email ? String(email).trim().toLowerCase() : null,
+      phone ? String(phone).trim() : null,
+      sanitizedGender || null,
+      birthday ? new Date(birthday) : null,
+      avatarUrl || null,
+      userId,
+    ]
+  );
+
+  const updatedUser = updateResult.rows[0];
+  res.json({
+    status: 'success',
+    message: 'cập nhật hồ sơ thành công', // chuỗi thông báo toast theo PDF
+    data: {
+      ...updatedUser,
+      maskedEmail: maskEmail(updatedUser.email),
+    },
+  });
+});
+
+// Upload avatar người dùng (POST /api/user/avatar)
+app.post('/api/user/avatar', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+  const { imageBase64 } = req.body || {};
+
+  if (!imageBase64 || typeof imageBase64 !== 'string') {
+    throw new HttpError(400, 'Dữ liệu ảnh không hợp lệ.');
+  }
+
+  // Kiểm tra định dạng: chỉ chấp nhận png, jpg, jpeg (theo PDF Page 4)
+  const mimeMatch = imageBase64.match(/^data:image\/(png|jpeg|jpg);base64,/i);
+  if (!mimeMatch) {
+    throw new HttpError(400, 'Định dạng hợp lệ: chỉ chấp nhận .png/.jpg/.jpeg');
+  }
+
+  // Ràng buộc dung lượng tối đa 2MB (tránh tràn bộ nhớ server - PDF Page 4)
+  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  const bufferLength = Buffer.byteLength(base64Data, 'base64');
+  const MAX_SIZE = 2 * 1024 * 1024; // 2MB
+  if (bufferLength > MAX_SIZE) {
+    throw new HttpError(400, 'Dung lượng file tối đa 2MB. Vui lòng chọn ảnh nhỏ hơn.');
+  }
+
+  await pool.query('UPDATE users SET avatar_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
+    imageBase64,
+    userId,
+  ]);
+
+  res.json({
+    status: 'success',
+    message: 'Cập nhật ảnh đại diện thành công.',
+    avatarUrl: imageBase64,
+  });
+});
+
+// Lấy danh sách địa chỉ nhận hàng
+app.get('/api/user/addresses', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+
+  const result = await pool.query(
+    `SELECT id, recipient_name, phone, detail_address, is_default, created_at
+     FROM user_addresses
+     WHERE user_id = $1
+     ORDER BY is_default DESC, id DESC`,
+    [userId]
+  );
+
+  res.json({
+    status: 'success',
+    total: result.rowCount,
+    data: result.rows,
+  });
+});
+
+// Thêm địa chỉ nhận hàng mới
+app.post('/api/user/addresses', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+  const { recipientName, phone, detailAddress, isDefault } = req.body || {};
+
+  if (!recipientName || !phone || !detailAddress) {
+    throw new HttpError(400, 'Vui lòng nhập tên người nhận, số điện thoại và địa chỉ cụ thể.');
+  }
+
+  // Validate SĐT
+  if (!/^(0|\+84)[0-9]{9,10}$/.test(String(phone).trim())) {
+    throw new HttpError(400, 'Số điện thoại không đúng định dạng (10-11 số).');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Kiểm tra xem user đã có địa chỉ nào chưa
+    const existing = await client.query('SELECT COUNT(*) AS total FROM user_addresses WHERE user_id = $1', [userId]);
+    const isFirst = Number(existing.rows[0].total) === 0;
+    const shouldBeDefault = isDefault || isFirst;
+
+    if (shouldBeDefault) {
+      // Hủy mặc định của các địa chỉ cũ
+      await client.query('UPDATE user_addresses SET is_default = false WHERE user_id = $1', [userId]);
+    }
+
+    const insertResult = await client.query(
+      `INSERT INTO user_addresses (user_id, recipient_name, phone, detail_address, is_default)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, recipient_name, phone, detail_address, is_default, created_at`,
+      [userId, String(recipientName).trim(), String(phone).trim(), String(detailAddress).trim(), shouldBeDefault]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({
+      status: 'success',
+      message: 'Thêm địa chỉ nhận hàng thành công.',
+      data: insertResult.rows[0],
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// Sửa địa chỉ nhận hàng (PUT /api/user/addresses/:id)
+app.put('/api/user/addresses/:id', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+  const addressId = parseId(req.params.id, 'addressId');
+  const { recipientName, phone, detailAddress, isDefault } = req.body || {};
+
+  if (!recipientName || !phone || !detailAddress) {
+    throw new HttpError(400, 'Vui lòng điền đầy đủ tên người nhận, số điện thoại và địa chỉ chi tiết.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (isDefault) {
+      await client.query('UPDATE user_addresses SET is_default = false WHERE user_id = $1', [userId]);
+    }
+
+    const updateResult = await client.query(
+      `UPDATE user_addresses
+       SET recipient_name = $1, phone = $2, detail_address = $3,
+           is_default = COALESCE($4, is_default), updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5 AND user_id = $6
+       RETURNING id, recipient_name, phone, detail_address, is_default, updated_at`,
+      [String(recipientName).trim(), String(phone).trim(), String(detailAddress).trim(), isDefault, addressId, userId]
+    );
+
+    if (updateResult.rowCount === 0) {
+      throw new HttpError(404, 'Không tìm thấy địa chỉ để cập nhật.');
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      status: 'success',
+      message: 'Cập nhật địa chỉ thành công.',
+      data: updateResult.rows[0],
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// Xóa địa chỉ nhận hàng (DELETE /api/user/addresses/:id)
+// Quy tắc nghiệp vụ (PDF Page 4): Nếu chỉ có duy nhất 1 địa chỉ mặc định, không được xóa và báo "Cần ít nhất 1 địa chỉ nhận hàng"
+app.delete('/api/user/addresses/:id', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+  const addressId = parseId(req.params.id, 'addressId');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Đếm tổng số địa chỉ hiện có của user
+    const totalCountRes = await client.query('SELECT COUNT(*) AS total FROM user_addresses WHERE user_id = $1', [userId]);
+    const totalCount = Number(totalCountRes.rows[0].total);
+
+    if (totalCount <= 1) {
+      throw new HttpError(400, 'Cần ít nhất 1 địa chỉ nhận hàng');
+    }
+
+    // Kiểm tra địa chỉ cần xóa có tồn tại và có phải là mặc định không
+    const targetRes = await client.query('SELECT is_default FROM user_addresses WHERE id = $1 AND user_id = $2', [
+      addressId,
+      userId,
+    ]);
+
+    if (targetRes.rowCount === 0) {
+      throw new HttpError(404, 'Không tìm thấy địa chỉ.');
+    }
+
+    const wasDefault = targetRes.rows[0].is_default;
+
+    await client.query('DELETE FROM user_addresses WHERE id = $1 AND user_id = $2', [addressId, userId]);
+
+    // Nếu vừa xóa địa chỉ mặc định, tự động chuyển 1 địa chỉ còn lại thành mặc định
+    if (wasDefault) {
+      await client.query(
+        `UPDATE user_addresses
+         SET is_default = true
+         WHERE id = (SELECT id FROM user_addresses WHERE user_id = $1 ORDER BY id DESC LIMIT 1)`,
+        [userId]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      status: 'success',
+      message: 'Xóa địa chỉ thành công.',
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// Đặt làm địa chỉ mặc định (PATCH /api/user/addresses/:id/default)
+app.patch('/api/user/addresses/:id/default', async (req, res) => {
+  const userId = req.user ? req.user.userId : 1;
+  const addressId = parseId(req.params.id, 'addressId');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query('UPDATE user_addresses SET is_default = false WHERE user_id = $1', [userId]);
+
+    const result = await client.query(
+      `UPDATE user_addresses
+       SET is_default = true, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND user_id = $2
+       RETURNING id, recipient_name, phone, detail_address, is_default`,
+      [addressId, userId]
+    );
+
+    if (result.rowCount === 0) {
+      throw new HttpError(404, 'Không tìm thấy địa chỉ.');
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      status: 'success',
+      message: 'Đã thiết lập làm địa chỉ mặc định.',
+      data: result.rows[0],
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// ==========================================
+// 404 & ERROR HANDLING MIDDLEWARE
+// ==========================================
 app.use((req, res) => {
   res.status(404).json({ status: 'fail', message: 'Không tìm thấy đường dẫn.' });
 });
 
-// Express 5 tự chuyển lỗi của handler async vào đây
 app.use((err, req, res, next) => {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ status: 'fail', message: err.message });
   }
-  // Lỗi từ express.json(): JSON sai cú pháp, body quá lớn...
   if (err.expose && err.status < 500) {
     return res.status(err.status).json({ status: 'fail', message: 'Dữ liệu gửi lên không hợp lệ.' });
   }
-  console.error(err);
-  res.status(500).json({ status: 'error', message: 'Lỗi máy chủ.' });
+  console.error('Server error:', err);
+  res.status(500).json({ status: 'error', message: 'Lỗi máy chủ nội bộ.' });
 });
 
+// Khởi chạy HTTP Server
 const server = app.listen(PORT, () => {
-  console.log(`Backend đang chạy tại cổng ${PORT}`);
+  console.log(`Backend Auramall đang chạy tại cổng ${PORT}`);
+  autoMigrateDatabase();
 });
 
-// Giữ kết nối lâu hơn keepalive của Nginx để tránh lỗi 502 khi Nginx tái sử dụng kết nối đã bị đóng
+// Tự động kiểm tra, bổ sung cột mới và nạp dữ liệu mẫu/hình ảnh nếu CSDL chưa có
+async function autoMigrateDatabase() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        slug VARCHAR(100) UNIQUE NOT NULL,
+        icon VARCHAR(50) DEFAULT '📦',
+        display_order INT DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        phone VARCHAR(20) NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        gender VARCHAR(10) DEFAULT 'other',
+        birthday DATE,
+        avatar_url TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS user_addresses (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        recipient_name VARCHAR(100) NOT NULL,
+        phone VARCHAR(20) NOT NULL,
+        detail_address TEXT NOT NULL,
+        is_default BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS original_price NUMERIC(12, 2);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent INT DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS rating NUMERIC(2, 1) DEFAULT 5.0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS review_count INT DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS sold_count INT DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_flash_sale BOOLEAN DEFAULT FALSE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS thumbnails JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_code VARCHAR(50);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(12, 2) DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS final_total NUMERIC(12, 2) DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(100);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(20);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'COD';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS buyer_note TEXT;
+
+      CREATE TABLE IF NOT EXISTS order_items (
+        id SERIAL PRIMARY KEY,
+        order_id INT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+        product_id INT NOT NULL REFERENCES products(id),
+        product_name VARCHAR(255) NOT NULL,
+        product_image TEXT,
+        quantity INT NOT NULL CHECK (quantity > 0),
+        unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
+        subtotal NUMERIC(12, 2) NOT NULL CHECK (subtotal >= 0)
+      );
+    `);
+
+    // 1. Kiểm tra nạp danh mục
+    const catCheck = await pool.query('SELECT COUNT(*) AS total FROM categories');
+    if (Number(catCheck.rows[0].total) === 0) {
+      await pool.query(`
+        INSERT INTO categories (id, name, slug, icon, display_order) VALUES
+        (1, 'Điện thoại & Phụ kiện', 'dien-thoai-phu-kien', '📱', 1),
+        (2, 'Thời trang & Quần áo', 'thoi-trang-quan-ao', '👕', 2),
+        (3, 'Laptop & Máy tính', 'laptop-may-tinh', '💻', 3),
+        (4, 'Thiết bị Âm thanh', 'thiet-bi-am-thanh', '🎧', 4),
+        (5, 'Màn hình & Đồ họa', 'man-hinh-do-hoa', '🖥️', 5),
+        (6, 'Bàn ghế Công thái học', 'ban-ghe-cong-thai-hoc', '🪑', 6),
+        (7, 'Ổ cứng & Thiết bị lưu trữ', 'thiet-bi-luu-tru', '💾', 7),
+        (8, 'Cáp sạc & Pin sạc', 'cap-sac-pin-sac', '🔋', 8),
+        (9, 'Thiết bị Nhà thông minh', 'thiet-bi-nha-thong-minh', '💡', 9),
+        (10, 'Gaming & Ngoại vi', 'gaming-ngoai-vi', '🎮', 10)
+        ON CONFLICT (id) DO NOTHING;
+        SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
+      `);
+    }
+
+    // 2. Kiểm tra nạp user mẫu
+    const userCheck = await pool.query('SELECT COUNT(*) AS total FROM users');
+    if (Number(userCheck.rows[0].total) === 0) {
+      await pool.query(`
+        INSERT INTO users (id, username, email, phone, password_hash, gender, birthday, avatar_url) VALUES
+        (1, 'auramall_user', 'user@auramall.vn', '0969795794', 'auramall_salt_2026:65c7a1753ec3bd87b6778e501e946f368c4e4c4186e3c43f82d531eed6393e83a1dbf4da15d567a56a3fb6cf8ae517f35389e5dde5ecf9a63bfc81bae53501ac', 'nam', '1998-05-15', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80')
+        ON CONFLICT (id) DO NOTHING;
+        SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));
+
+        INSERT INTO user_addresses (id, user_id, recipient_name, phone, detail_address, is_default) VALUES
+        (1, 1, 'Nguyễn Văn A', '0969795794', 'Số 12 ngõ 86 đường Cầu Giấy, Phường Quan Hoa, Quận Cầu Giấy, Hà Nội', true),
+        (2, 1, 'Nguyễn Văn A (Văn phòng)', '0969795794', 'Tầng 18, Keangnam Landmark 72, Đường Phạm Hùng, Phường Mễ Trì, Quận Nam Từ Liêm, Hà Nội', false)
+        ON CONFLICT (id) DO NOTHING;
+        SELECT setval('user_addresses_id_seq', (SELECT MAX(id) FROM user_addresses));
+      `);
+    }
+
+    // 3. Cập nhật hình ảnh và thông tin mở rộng cho sản phẩm
+    const prodImgCheck = await pool.query('SELECT COUNT(*) AS total FROM products WHERE image_url IS NOT NULL');
+    if (Number(prodImgCheck.rows[0].total) < 20) {
+      const sampleProducts = [
+        { id: 1, img: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 1550000, disc: 19, rate: 4.9, sold: 1240, flash: false, desc: 'Bàn phím cơ không dây AKKO 3087 v2 switch Akko CS độc quyền, keycap PBT Doubleshot bền bỉ, kết nối Bluetooth 5.0 và Type-C.' },
+        { id: 2, img: 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 1190000, disc: 25, rate: 4.8, sold: 2400, flash: true, desc: 'Cảm biến HERO 25K tiên tiến, 11 nút có thể lập trình, hệ thống tạ điều chỉnh trọng lượng linh hoạt.' },
+        { id: 3, img: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80', cat: 4, orig: 7990000, disc: 18, rate: 4.9, sold: 850, flash: false, desc: 'Công nghệ chống ồn hàng đầu thế giới với bộ xử lý Integrated Processor V1, pin 30 giờ.' },
+        { id: 4, img: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=600&q=80', cat: 5, orig: 12900000, disc: 13, rate: 5.0, sold: 420, flash: false, desc: 'Tấm nền IPS Black độ tương phản 2000:1, độ phủ màu 100% sRGB, cổng kết nối Type-C cấp nguồn 90W.' },
+        { id: 5, img: 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?auto=format&fit=crop&w=600&q=80', cat: 3, orig: 450000, disc: 28, rate: 4.7, sold: 3100, flash: false, desc: 'Chất liệu hợp kim nhôm nguyên khối, đệm silicon chống trượt và trầy xước, tùy chỉnh 6 cấp độ cao.' },
+        { id: 6, img: 'https://images.unsplash.com/photo-1588508065123-287b28e013da?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 950000, disc: 21, rate: 4.6, sold: 620, flash: false, desc: 'Độ phân giải Full HD 1080p 60fps mượt mà, tự động lấy nét nhanh, mic kép lọc ồn thông minh.' },
+        { id: 7, img: 'https://images.unsplash.com/photo-1534349762230-e0cadf78f5da?auto=format&fit=crop&w=600&q=80', cat: 9, orig: 600000, disc: 25, rate: 4.8, sold: 980, flash: false, desc: 'Chỉ số hoàn màu Ra>95 bảo vệ thị lực, điều khiển cảm ứng trượt mượt mà, hẹn giờ tắt thông minh.' },
+        { id: 8, img: 'https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?auto=format&fit=crop&w=600&q=80', cat: 7, orig: 2890000, disc: 18, rate: 4.9, sold: 1150, flash: false, desc: 'Tốc độ đọc/ghi lên tới 1.050MB/s NVMe, vỏ nhôm chống sốc rơi vỡ tới 2 mét, bảo mật vân tay.' },
+        { id: 9, img: 'https://images.unsplash.com/photo-1541689592655-f5f52825a3b8?auto=format&fit=crop&w=600&q=80', cat: 8, orig: 250000, disc: 24, rate: 4.9, sold: 5600, flash: true, desc: 'Hỗ trợ công suất Power Delivery 100W, dây bọc dù bện nylon siêu bền chịu uốn 25.000 lần.' },
+        { id: 10, img: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=600&q=80', cat: 8, orig: 650000, disc: 24, rate: 4.8, sold: 1800, flash: true, desc: 'Công nghệ bán dẫn GaN nhỏ gọn hơn 50%, trang bị 2 cổng USB-C và 1 USB-A sạc cùng lúc 3 thiết bị.' },
+        { id: 11, img: 'https://images.unsplash.com/photo-1544652478-6653e09f18a2?auto=format&fit=crop&w=600&q=80', cat: 3, orig: 790000, disc: 21, rate: 4.7, sold: 920, flash: false, desc: 'Mở rộng toàn diện: HDMI 4K 60Hz, sạc pass-through PD 100W, khe thẻ SD/TF, 3 cổng USB 3.0, LAN Gigabit.' },
+        { id: 12, img: 'https://images.unsplash.com/photo-1545454675-3531b543be5d?auto=format&fit=crop&w=600&q=80', cat: 4, orig: 2990000, disc: 16, rate: 4.8, sold: 1100, flash: false, desc: 'Hệ thống loa 2 chiều âm bass uy lực, chuẩn chống nước bụi IP67, pin sử dụng liên tục 12 giờ.' },
+        { id: 13, img: 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=600&q=80', cat: 4, orig: 1450000, disc: 20, rate: 4.7, sold: 380, flash: false, desc: 'Mô hình thu âm Cardioid tập trung bắt trọn giọng nói, màng lọc pop filter lọc tạp âm thở.' },
+        { id: 14, img: 'https://images.unsplash.com/photo-1580481077195-c328ad4f3922?auto=format&fit=crop&w=600&q=80', cat: 6, orig: 4600000, disc: 17, rate: 4.9, sold: 460, flash: false, desc: 'Tựa lưng cánh bướm ôm sát cột sống, lưới thoáng khí Hàn Quốc, kê tay 3D linh hoạt.' },
+        { id: 15, img: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=600&q=80', cat: 6, orig: 8900000, disc: 15, rate: 4.9, sold: 210, flash: false, desc: 'Động cơ kép nâng hạ êm ái tải trọng 120kg, bộ điều khiển nhớ 4 vị trí chiều cao, cảm biến chống va chạm.' },
+        { id: 16, img: 'https://images.unsplash.com/photo-1629429408209-1ab9133e0b24?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 180000, disc: 33, rate: 4.8, sold: 4800, flash: true, desc: 'Bề mặt vải dệt micro-weave siêu mịn rê chuột chuẩn xác, đáy cao su tự nhiên chống trượt.' },
+        { id: 17, img: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=600&q=80', cat: 9, orig: 240000, disc: 25, rate: 4.6, sold: 890, flash: false, desc: 'Pin 4000mAh liên tục 8 tiếng, 4 chế độ gió êm ái dưới 20dB, xoay linh hoạt 120 độ.' },
+        { id: 18, img: 'https://images.unsplash.com/photo-1609592424109-dd9892f1b177?auto=format&fit=crop&w=600&q=80', cat: 8, orig: 720000, disc: 23, rate: 4.8, sold: 2150, flash: false, desc: 'Dung lượng thực 20.000mAh Polymer, sạc nhanh PD 22.5W hai chiều, màn hình LED hiển thị % pin.' },
+        { id: 19, img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=600&q=80', cat: 2, orig: 290000, disc: 24, rate: 4.7, sold: 1400, flash: false, desc: 'Đệm mút bong bóng 360 độ chống va đập, vải Polyester chống thấm nước mưa, nhiều ngăn phụ tiện lợi.' },
+        { id: 20, img: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80', cat: 10, orig: 199000, disc: 50, rate: 4.9, sold: 3200, flash: true, desc: 'Sản phẩm đặc biệt phục vụ kiểm thử luồng Flash Sale chịu tải cao (k6). Giới hạn số lượng ít trong kho.' }
+      ];
+
+      for (const p of sampleProducts) {
+        await pool.query(
+          `UPDATE products
+           SET image_url = $1, thumbnails = $2, category_id = $3, original_price = $4, discount_percent = $5,
+               rating = $6, sold_count = $7, is_flash_sale = $8, description = $9
+           WHERE id = $10`,
+          [p.img, JSON.stringify([p.img]), p.cat, p.orig, p.disc, p.rate, p.sold, p.flash, p.desc, p.id]
+        );
+      }
+
+      await pool.query(`
+        INSERT INTO products (id, name, slug, category_id, price, original_price, discount_percent, stock, rating, review_count, sold_count, is_flash_sale, image_url, thumbnails, description) VALUES
+        (21, 'Điện thoại Flagship AuraPhone Pro 256GB', 'dien-thoai-flagship-auraphone-pro-256gb', 1, 18990000, 21990000, 13, 25, 4.9, 150, 890, false, 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Vi xử lý 4nm đỉnh cao, màn hình Dynamic AMOLED 120Hz mượt mà, camera 108MP chống rung OIS.'),
+        (22, 'Áo Polo Nam AuraMall Classic Cotton', 'ao-polo-nam-auramall-classic-cotton', 2, 299000, 399000, 25, 120, 4.8, 340, 1850, true, 'https://images.unsplash.com/photo-1581655353564-df123a1eb820?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1581655353564-df123a1eb820?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Chất liệu 100% Cotton chải kỹ tự nhiên, thấm hút mồ hôi tối ưu, form Regular Fit tôn dáng.'),
+        (23, 'Giày Sneaker AuraSport Pro Running (Hết hàng mẫu)', 'giay-sneaker-aurasport-pro-running', 2, 850000, 1100000, 22, 0, 4.7, 85, 520, false, 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Đế đệm khí êm ái, vải dệt Flyknit thoáng khí. Sản phẩm mẫu có stock = 0 để kiểm tra giao diện nhãn Hết hàng & nút vô hiệu hóa.'),
+        (24, 'Đồng hồ thông minh AuraWatch Ultra', 'dong-ho-thong-minh-aurawatch-ultra', 1, 3450000, 4200000, 17, 18, 4.8, 95, 410, false, 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80', '["https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80"]'::jsonb, 'Khung titan siêu nhẹ, đo nhịp tim SpO2 liên tục 24/7, định vị GPS kép độc lập, chống nước 5ATM.')
+        ON CONFLICT (id) DO NOTHING;
+        SELECT setval('products_id_seq', (SELECT MAX(id) FROM products));
+      `);
+    }
+    console.log('Đồng bộ và nạp dữ liệu mẫu AuraMall thành công!');
+  } catch (err) {
+    console.warn('Lưu ý autoMigrateDatabase:', err.message);
+  }
+}
+
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 
-// Dừng êm khi Docker gửi SIGTERM (scale giảm, cập nhật): ngừng nhận request mới,
-// xử lý xong request đang chạy rồi đóng pool
 function shutdown(signal) {
   console.log(`Nhận ${signal}, đang dừng backend...`);
   server.close(() => {
@@ -212,4 +1255,3 @@ function shutdown(signal) {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
-

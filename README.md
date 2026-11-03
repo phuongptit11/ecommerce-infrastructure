@@ -1,15 +1,41 @@
-# ecommerce-infrastructure
-Kế hoạch triển khai hệ thống hạ tầng TMĐT
-# ĐỀ TÀI 07: THIẾT KẾ HẠ TẦNG CNTT CHO HỆ THỐNG TMĐT
+# HỆ THỐNG HẠ TẦNG THƯƠNG MẠI ĐIỆN TỬ AURAMALL
+## ĐỀ TÀI 07: THIẾT KẾ HẠ TẦNG CNTT CHO HỆ THỐNG TMĐT
 
-Hệ thống mô phỏng kiến trúc 3 tầng phân vùng mạng:
-* **Tầng 1 (Web):** Nginx Reverse Proxy & Static Web (Public Subnet - Cổng 80)
-* **Tầng 2 (App):** Node.js Express API (Private Subnet - Cổng 5000 nội bộ)
-* **Tầng 3 (Data):** PostgreSQL 15 (Private Subnet - Cổng 5432 nội bộ)
+Hệ thống mô phỏng kiến trúc hạ tầng TMĐT phân vùng mạng 3 tầng chuyên nghiệp, đáp ứng các tiêu chuẩn bảo mật, cân bằng tải và khả năng chịu tải Flash Sale (k6 load testing):
+* **Tầng 1 (Web Tier):** Nginx Reverse Proxy 1.28 & Static Web SPA (Public Subnet - Cổng 80)
+* **Tầng 2 (App Tier):** Node.js 22 Express 5 API Cluster (Private Subnet - Cổng 5000 nội bộ)
+* **Tầng 3 (Data Tier):** PostgreSQL 15 Database (Private Subnet - Cổng 5432 nội bộ)
 
 ---
 
-## 1. KHỞI ĐỘNG HỆ THỐNG (BẰNG 1 DÒNG LỆNH)
+## 1. CÁC EXTENSION KHUYẾN NGHỊ TRONG VISUAL STUDIO CODE
+
+Để mở và làm việc hiệu quả với toàn bộ các định dạng file trong dự án bằng Visual Studio Code, bạn nên cài đặt các extension sau trong tab Extensions (`Ctrl + Shift + X`):
+
+1. **Draw.io Integration (`hediet.vscode-drawio`)**:
+   - Dùng để xem và chỉnh sửa sơ đồ kiến trúc hạ tầng [docs/architecture.drawio](docs/architecture.drawio) trực tiếp ngay trong VS Code với giao diện đồ họa kéo thả.
+2. **REST Client (`humao.rest-client`)** hoặc **Thunder Client (`rangav.vscode-thunder-client`)**:
+   - Dùng để gửi trực tiếp các Request API kiểm thử có sẵn trong [docs/api-test.http](docs/api-test.http) chỉ bằng 1 cú click ("Send Request").
+3. **Docker (`ms-azuretools.vscode-docker`)**:
+   - Quản lý các container, volume, network và kiểm tra log của [docker-compose.yml](docker-compose.yml).
+4. **PostgreSQL Client / SQLTools (`mtxr.sqltools` + `mtxr.sqltools-driver-pg`)**:
+   - Quản lý, chạy câu lệnh truy vấn trực tiếp vào CSDL PostgreSQL từ file [database/schema.sql](database/schema.sql) và [database/seed.sql](database/seed.sql).
+5. **Live Server (`ritwickdey.liveserver`)**:
+   - Khởi chạy nhanh và xem trước giao diện frontend nếu chạy độc lập mà không dùng Docker.
+6. **Prettier - Code formatter (`esbenp.prettier-vscode`)**:
+   - Tự động định dạng mã nguồn HTML, CSS, JavaScript, JSON và Markdown chuẩn chỉ.
+
+> **Mẹo cài nhanh bằng dòng lệnh Terminal:**
+> ```bash
+> code --install-extension hediet.vscode-drawio
+> code --install-extension humao.rest-client
+> code --install-extension ms-azuretools.vscode-docker
+> code --install-extension mtxr.sqltools
+> ```
+
+---
+
+## 2. KHỞI ĐỘNG HỆ THỐNG (BẰNG 1 DÒNG LỆNH)
 
 Đảm bảo Docker Desktop đang chạy, sau đó mở Terminal / PowerShell tại thư mục dự án và gõ:
 
@@ -31,23 +57,88 @@ docker compose logs -f
 ```bash
 docker compose down
 ```
+*(Thêm cờ `-v` nếu muốn xóa volume để khởi tạo lại CSDL từ đầu: `docker compose down -v`)*
 
 ---
 
-## 2. NGHIỆM THU BÀI KIỂM THỬ KT1
+## 3. CÁC MÀN HÌNH & NGHIỆP VỤ HỆ THỐNG (THEO BẢN THIẾT KẾ AURAMALL)
 
-Sau khi hệ thống khởi động:
-1. **Truy cập Giao diện Web:** Mở trình duyệt vào địa chỉ [http://localhost](http://localhost)
-   * Kiểm tra danh mục 20 sản phẩm hiển thị đầy đủ (Tác vụ Đọc).
-   * Bấm nút "Mua" hoặc nhập ID bấm "Tạo đơn hàng" $\rightarrow$ Thấy thông báo thành công và tồn kho giảm đi (Tác vụ Ghi).
-2. **Kiểm tra API bằng Thunder Client / Postman / cURL:**
-   * Tác vụ Đọc: `GET http://localhost/api/products` (Mã 200)
-   * Tác vụ Ghi: `POST http://localhost/api/orders` với body `{"productId": 1, "quantity": 1}` (Mã 201)
-   * Kiểm tra sức khỏe: `GET http://localhost/health` (Mã 200)
+Hệ thống được thiết kế hoàn thiện gồm 6 phân hệ màn hình chuẩn TMĐT:
+
+### 1. Phân hệ Xác thực (Auth: Đăng ký & Đăng nhập)
+* **Bố cục 2 cột**: Cột trái là banner giới thiệu Flash Sale và các ưu đãi đặc quyền; cột phải là Form thao tác.
+* **Màn hình Đăng ký**:
+  * Đầy đủ thông tin: Tên đăng nhập, Email, Số điện thoại, Mật khẩu, Nhập lại mật khẩu, Đăng ký qua Google/Facebook.
+  * **Realtime Validation**: Kiểm tra mật khẩu đạt chuẩn tối thiểu 8 ký tự, gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số; kiểm tra khớp mật khẩu ngay khi gõ.
+  * Checkbox đồng ý Điều khoản dịch vụ; chuyển đổi nhanh sang màn Đăng nhập.
+* **Màn hình Đăng nhập**:
+  * Đăng nhập linh hoạt bằng Tên đăng nhập / Email / Số điện thoại.
+  * Ghi nhớ đăng nhập (Remember me), Quên mật khẩu.
+  * Tự động lưu JWT Token và điều hướng quay lại trang người dùng đang duyệt dở.
+
+### 2. Trang Chủ & Danh Mục Sản Phẩm (Luồng Nghiệp vụ 1: `GET /api/products`)
+* **Header**:
+  * Logo thương hiệu `auramall`.
+  * Thanh tìm kiếm từ khóa với gợi ý từ khóa hot.
+  * Icon giỏ hàng với Badge số lượng; hover hiển thị Popover xem nhanh 3 sản phẩm gần nhất kèm nút "Xem giỏ hàng".
+  * Khu vực tài khoản: Hover hiển thị menu Đăng nhập/Đăng ký khi chưa login; hiển thị Tên, Avatar và menu điều hướng khi đã login.
+* **Cột bên trái (Bộ lọc)**:
+  * Cây danh mục 10 chủ đề: Điện thoại, Thời trang, Laptop, Âm thanh, Màn hình, Bàn ghế, Lưu trữ, Cáp sạc, Nhà thông minh, Gaming.
+  * Lọc theo khoảng giá từ - đến và nút Áp dụng.
+  * Lọc theo đánh giá sao (5 sao, 4 sao trở lên, 3 sao trở lên...).
+* **Khu vực nội dung chính**:
+  * Thanh sắp xếp: Phổ biến, Mới nhất, Bán chạy, Giá (Thấp đến Cao / Cao đến Thấp).
+  * Thẻ sản phẩm: Tỉ lệ ảnh 1:1 có hiệu ứng zoom nhẹ khi hover, tag giảm giá, tag Flash Sale, tên sản phẩm tự động cắt bằng `...` sau 2 dòng, giá thực tế màu đỏ nổi bật, sao đánh giá và tổng lượt bán.
+  * Phân trang: Chia cụm 20 sản phẩm/1 trang (LIMIT 20 trong truy vấn backend).
+
+### 3. Chi Tiết Sản Phẩm (Product Detail)
+* Khung ảnh đại diện lớn bên trái + dải thumbnail nhỏ bên dưới (hover/click chuyển đổi ảnh).
+* Tên sản phẩm to rõ, số sao trung bình, lượt đánh giá và lượt bán.
+* Khung giá bán nổi bật kèm giá gốc gạch ngang.
+* Trạng thái kho hàng: Còn hàng (x sản phẩm có sẵn) hoặc nhãn màu xám "Hết hàng".
+* Bộ chọn số lượng: Giới hạn tối thiểu 1 và tối đa tồn kho thực tế. Vô hiệu hóa (disabled) khi hết hàng.
+* Nút "Thêm vào giỏ hàng" kèm **hiệu ứng bay sản phẩm vào giỏ hàng ở header** và Toast thông báo; nút "Mua ngay" điều hướng thẳng tới giỏ hàng/thanh toán.
+
+### 4. Chi Tiết Giỏ Hàng (Cart Page)
+* Bảng danh sách: Checkbox chọn tất cả, checkbox từng mặt hàng, ảnh thu nhỏ, đơn giá, cụm tăng/giảm số lượng tự động tính lại tổng tiền, nút xóa có Popup xác nhận.
+* Thanh tổng kết cố định đáy màn hình (Sticky Bar): Hiển thị tổng thanh toán cho N sản phẩm được tích chọn.
+* Nút "Mua hàng": Nếu chưa chọn sản phẩm nào sẽ bật popup nhắc nhở; nếu đã chọn sẽ chuyển sang màn hình Thanh toán.
+
+### 5. Màn Hình Thanh Toán (Luồng Nghiệp vụ 2: `POST /api/orders`)
+* Khối địa chỉ nhận hàng: Hiển thị địa chỉ mặc định, kèm modal thêm/sửa địa chỉ.
+* Khối sản phẩm thanh toán: Tóm tắt các sản phẩm đã tích chọn (read-only).
+* Khối ghi chú cho người bán và khối phương thức thanh toán (COD / Chuyển khoản VietQR).
+* Nút "Đặt hàng": Gửi request tạo đơn hàng với giao dịch Database trừ kho nguyên tử (Atomic deduction with row lock).
+  * Thành công (201): Bật popup "Đặt hàng thành công!" hiển thị mã đơn, nút Về trang chủ và Xem chi tiết đơn hàng.
+  * Hết hàng (400): Hiển thị thông báo: *"rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!"*.
+
+### 6. Trung Tâm Người Dùng (Account Center)
+* **Tab Hồ sơ cá nhân**:
+  * Tên đăng nhập cố định (readonly).
+  * Email, Số điện thoại (validate 10-11 số), Giới tính (3 lựa chọn), Ngày sinh (DatePicker không vượt quá hiện tại).
+  * Upload Avatar: Khung tròn hiển thị ảnh hiện tại, nút chọn ảnh từ máy tính, validate chỉ nhận `.png/.jpg/.jpeg` tối đa 2MB, **xem trước (preview) ảnh ngay lập tức trên khung tròn**.
+  * Lưu cập nhật qua `PUT /api/user/profile` kèm Toast thông báo *"cập nhật hồ sơ thành công"*.
+* **Tab Sổ địa chỉ**:
+  * Danh sách địa chỉ nhận hàng, nhãn "Mặc định".
+  * Thêm/Sửa địa chỉ.
+  * Xóa địa chỉ: Bật dialog xác nhận; nếu chỉ còn 1 địa chỉ duy nhất sẽ khóa nút xóa kèm thông báo *"Cần ít nhất 1 địa chỉ nhận hàng"*.
+  * Tự động đồng bộ với màn hình Thanh toán.
+* **Tab Đơn mua**:
+  * Tra cứu danh sách tất cả các đơn hàng đã đặt thành công.
 
 ---
 
-## 3. KẾT NỐI DBEAVER ĐỂ XEM DỮ LIỆU CSDL (Dành cho SV3)
+## 4. TÀI LIỆU KỸ THUẬT & HỢP ĐỒNG API
+
+* **Hợp đồng API chi tiết:** [docs/api-contract.md](docs/api-contract.md)
+* **Kịch bản kiểm thử API tự động (REST Client):** [docs/api-test.http](docs/api-test.http)
+* **Sơ đồ kiến trúc hạ tầng Draw.io:** [docs/architecture.drawio](docs/architecture.drawio)
+* **Kịch bản sao lưu CSDL:** `bash scripts/backup.sh`
+* **Kịch bản phục hồi CSDL:** `bash scripts/restore.sh <file_backup>`
+
+---
+
+## 5. THÔNG TIN KẾT NỐI CƠ SỞ DỮ LIỆU (DBEAVER)
 
 Mở DBeaver $\rightarrow$ New Database Connection $\rightarrow$ PostgreSQL:
 * **Host:** `localhost`
@@ -55,4 +146,7 @@ Mở DBeaver $\rightarrow$ New Database Connection $\rightarrow$ PostgreSQL:
 * **Database:** `ecommerce_db`
 * **Username:** `ecommerce_user`
 * **Password:** `ecommerce_secret`
-* Bấm **Test Connection** $\rightarrow$ **Finish**.
+
+**Tài khoản mẫu đã tạo sẵn:**
+* **Tên đăng nhập:** `auramall_user` hoặc `user@auramall.vn` hoặc `0969795794`
+* **Mật khẩu:** `Password123`

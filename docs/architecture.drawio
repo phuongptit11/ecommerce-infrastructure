@@ -1,0 +1,101 @@
+<mxfile host="Electron" modified="2026-11-03T18:30:00.000Z" agent="Mozilla/5.0" version="21.6.8" type="device">
+  <diagram id="ecommerce-3tier-arch" name="Kien Truc Ha Tang 3 Tang AuraMall">
+    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" background="#F8FAFC" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Khung bao ngoai he thong -->
+        <mxCell id="title" value="KIẾN TRÚC HẠ TẦNG THƯƠNG MẠI ĐIỆN TỬ AURAMALL (ĐỀ TÀI 07)&#xa;Mô hình 3 tầng phân vùng mạng: Nginx (Web) -&gt; Node.js Express (App) -&gt; PostgreSQL (DB)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#1E293B;" vertex="1" parent="1">
+          <mxGeometry x="180" y="20" width="800" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- KHACH HANG & LOAD TEST -->
+        <mxCell id="client-box" value="CLIENT &amp; TESTING TIER" style="swimlane;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;fillColor=#EFF6FF;strokeColor=#3B82F6;fontColor=#1E3A8A;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="220" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="user-browser" value="Web Browser / Mobile&#xa;(HTML5, CSS3, JS Vanilla SPA)&#xa;Port 80 HTTP" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#93C5FD;fontColor=#1E293B;rounded=1;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="60" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="k6-loadtest" value="k6 Load Testing Engine&#xa;(Flash Sale Stress Test&#xa;20 - 300 VUs)" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F87171;fontColor=#991B1B;rounded=1;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="170" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="api-client" value="Thunder Client / Postman&#xa;API Contract Verification&#xa;JSON REST Client" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A78BFA;fontColor=#5B21B6;rounded=1;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="280" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="dbeaver" value="DBeaver Database Tool&#xa;(Dev / DBA Access)&#xa;127.0.0.1:5432" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#34D399;fontColor=#065F46;rounded=1;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="390" width="180" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- TANG 1: NGINX WEB TIER (PUBLIC SUBNET) -->
+        <mxCell id="web-tier-box" value="TẦNG 1: WEB TIER (PUBLIC SUBNET - CỔNG 80)" style="swimlane;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;fillColor=#FEF3C7;strokeColor=#F59E0B;fontColor=#92400E;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="320" y="90" width="240" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="nginx-proxy" value="Nginx 1.28 Alpine&#xa;Reverse Proxy &amp; Gateway&#xa;• Host static web frontend&#xa;• Round-robin load balancing&#xa;• Gzip compression&#xa;• DNS dynamic resolver (127.0.0.11)&#xa;• Security headers &amp; Rate limit" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#FCD34D;fontColor=#1E293B;rounded=1;align=left;spacingLeft=10;" vertex="1" parent="web-tier-box">
+          <mxGeometry x="20" y="50" width="200" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="static-files" value="Static Files Mount&#xa;• /frontend/index.html&#xa;• HTML, CSS, JS Single Page App&#xa;• Try_files fallback routing" style="shape=folder;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F59E0B;fontColor=#1E293B;tabWidth=80;tabHeight=20;" vertex="1" parent="web-tier-box">
+          <mxGeometry x="20" y="230" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="nginx-logs" value="Logging &amp; Monitoring&#xa;• access.log (response time $rt)&#xa;• upstream addr ($upstream_addr)&#xa;• error.log" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F59E0B;fontColor=#1E293B;rounded=1;" vertex="1" parent="web-tier-box">
+          <mxGeometry x="20" y="360" width="200" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- TANG 2: APP TIER (PRIVATE SUBNET) -->
+        <mxCell id="app-tier-box" value="TẦNG 2: APP TIER (PRIVATE SUBNET - CỔNG 5000)" style="swimlane;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;fillColor=#F3E8FF;strokeColor=#9333EA;fontColor=#581C87;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="610" y="90" width="250" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="node-backend-1" value="Node.js 22 + Express 5&#xa;Backend Instance 1&#xa;• JWT Authentication &amp; PBKDF2&#xa;• RESTful APIs (/api/products, orders)&#xa;• Pg Connection Pool (max 10)&#xa;• Atomic inventory deduction" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C084FC;fontColor=#1E293B;rounded=1;align=left;spacingLeft=10;" vertex="1" parent="app-tier-box">
+          <mxGeometry x="20" y="50" width="210" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="node-backend-2" value="Node.js Backend Instance 2&#xa;(Docker Compose Scale N)&#xa;Cân bằng tải ngang (Scale out)" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C084FC;fontColor=#6B7280;rounded=1;strokeDasharray=3 3;" vertex="1" parent="app-tier-box">
+          <mxGeometry x="20" y="190" width="210" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="node-backend-3" value="Node.js Backend Instance 3&#xa;(High Concurrency Flash Sale)" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#C084FC;fontColor=#6B7280;rounded=1;strokeDasharray=3 3;" vertex="1" parent="app-tier-box">
+          <mxGeometry x="20" y="280" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="app-features" value="App Features:&#xa;• Healthcheck /health&#xa;• Graceful shutdown (SIGTERM)&#xa;• Row-level lock (FOR UPDATE)" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FAF5FF;strokeColor=#A855F7;fontColor=#581C87;rounded=1;" vertex="1" parent="app-tier-box">
+          <mxGeometry x="20" y="360" width="210" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- TANG 3: DATA TIER (PRIVATE SUBNET) -->
+        <mxCell id="db-tier-box" value="TẦNG 3: DATA TIER (PRIVATE SUBNET - CỔNG 5432)" style="swimlane;whiteSpace=wrap;html=1;fontSize=13;fontStyle=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#14532D;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="910" y="90" width="230" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres-db" value="PostgreSQL 15 Alpine&#xa;Database Engine&#xa;• ACID Transactions&#xa;• Connection pooling (max 100)&#xa;• B-Tree Indexes&#xa;• Constraints &amp; Foreign Keys" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#FFFFFF;strokeColor=#4ADE80;fontColor=#1E293B;align=left;spacingLeft=15;" vertex="1" parent="db-tier-box">
+          <mxGeometry x="20" y="50" width="190" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="db-tables" value="Database Tables:&#xa;• users, user_addresses&#xa;• categories (10 topics)&#xa;• products (24 items, images)&#xa;• orders, order_items" style="shape=folder;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;fontColor=#1E293B;tabWidth=80;tabHeight=20;" vertex="1" parent="db-tier-box">
+          <mxGeometry x="20" y="200" width="190" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="db-storage" value="Data Persistence &amp; Backup&#xa;• pg_data Docker Volume&#xa;• scripts/backup.sh (pg_dump)&#xa;• scripts/restore.sh (psql)" style="shape=rectangle;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;fontColor=#1E293B;rounded=1;" vertex="1" parent="db-tier-box">
+          <mxGeometry x="20" y="340" width="190" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- KET NOI GIUA CAC TANG (ARROWS) -->
+        <mxCell id="conn-client-nginx" value="HTTP Request&#xa;Port 80" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#2563EB;strokeWidth=2;" edge="1" source="user-browser" target="nginx-proxy" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn-k6-nginx" value="Load Traffic&#xa;80% Read / 20% Write" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;strokeColor=#DC2626;strokeWidth=2;dashed=1;" edge="1" source="k6-loadtest" target="nginx-proxy" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn-nginx-app" value="Upstream Proxy&#xa;backend_nodes:5000" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#D97706;strokeWidth=2;" edge="1" source="nginx-proxy" target="node-backend-1" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn-app-db" value="PostgreSQL TCP&#xa;database:5432&#xa;(Connection Pool)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;strokeColor=#7C3AED;strokeWidth=2;" edge="1" source="node-backend-1" target="postgres-db" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn-dbeaver-db" value="Local Port 5432&#xa;(Dev Access)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#059669;strokeWidth=1;dashed=1;" edge="1" source="dbeaver" target="postgres-db" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="290" y="510" />
+              <mxPoint x="290" y="600" />
+              <mxPoint x="1005" y="600" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

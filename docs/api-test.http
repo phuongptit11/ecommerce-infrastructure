@@ -1,0 +1,117 @@
+### Biến môi trường Base URL
+@baseUrl = http://localhost
+
+### 1. Kiểm tra Health Check
+GET {{baseUrl}}/health
+Accept: application/json
+
+### 2. Lấy danh sách 10 danh mục sản phẩm (Cây danh mục)
+GET {{baseUrl}}/api/categories
+Accept: application/json
+
+### 3. Đọc danh mục sản phẩm (Luồng 1) - Mặc định 20 sản phẩm/trang
+GET {{baseUrl}}/api/products?page=1&limit=20
+Accept: application/json
+
+### 4. Đọc sản phẩm kèm bộ lọc: Danh mục, Khoảng giá, Số sao & Sắp xếp
+GET {{baseUrl}}/api/products?category=gaming-ngoai-vi&minPrice=100000&maxPrice=2000000&minRating=4&sort=popular
+Accept: application/json
+
+### 5. Tìm kiếm sản phẩm bằng từ khóa (Search Bar)
+GET {{baseUrl}}/api/products?q=akko
+Accept: application/json
+
+### 6. Xem chi tiết sản phẩm ID = 1
+GET {{baseUrl}}/api/products/1
+Accept: application/json
+
+### 7. Đăng ký tài khoản người dùng mới
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "tester2026",
+  "email": "tester2026@gmail.com",
+  "phone": "0988776655",
+  "password": "Password123",
+  "confirmPassword": "Password123"
+}
+
+### 8. Đăng nhập tài khoản
+# @name loginRequest
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "login": "user@auramall.vn",
+  "password": "Password123",
+  "remember": true
+}
+
+### Lưu token từ kết quả đăng nhập (cho REST Client)
+@authToken = {{loginRequest.response.body.token}}
+
+### 9. Lấy thông tin tài khoản người dùng hiện tại
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 10. Tạo đơn hàng (Luồng 2 - Tương thích ngược k6 load test)
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 1
+}
+
+### 11. Tạo đơn hàng đầy đủ (Luồng Thanh toán nhiều sản phẩm từ giỏ hàng)
+POST {{baseUrl}}/api/orders
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "items": [
+    { "productId": 1, "quantity": 1 },
+    { "productId": 2, "quantity": 1 }
+  ],
+  "recipientName": "Nguyễn Văn A",
+  "recipientPhone": "0969795794",
+  "shippingAddress": "Số 12 ngõ 86 Cầu Giấy, Hà Nội",
+  "paymentMethod": "COD",
+  "note": "Giao hàng giờ hành chính"
+}
+
+### 12. Lấy danh sách đơn hàng đã mua
+GET {{baseUrl}}/api/orders
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 13. Lấy sổ địa chỉ nhận hàng của người dùng
+GET {{baseUrl}}/api/user/addresses
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 14. Thêm địa chỉ nhận hàng mới
+POST {{baseUrl}}/api/user/addresses
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipientName": "Nguyễn Văn A (Địa chỉ mới)",
+  "phone": "0969795794",
+  "detailAddress": "Tòa nhà FPT Cầu Giấy, Hà Nội",
+  "isDefault": false
+}
+
+### 15. Cập nhật hồ sơ cá nhân
+PUT {{baseUrl}}/api/user/profile
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "email": "user@auramall.vn",
+  "phone": "0969795794",
+  "gender": "nam",
+  "birthday": "1998-05-15"
+}
