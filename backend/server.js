@@ -767,7 +767,7 @@ app.post('/api/orders', async (req, res) => {
           throw new HttpError(404, `Không tìm thấy sản phẩm có ID ${item.productId}.`);
         }
         // Thông báo lỗi chính xác theo yêu cầu phân tích màn hình (Page 3 PDF)
-        throw new HttpError(400, 'rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!');
+        throw new HttpError(409, 'rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!');
       }
 
       const prod = updated.rows[0];

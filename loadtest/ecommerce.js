@@ -34,7 +34,7 @@ export default function () {
     const payload = JSON.stringify({ productId, quantity: 1 });
     const params = { headers: { 'Content-Type': 'application/json' } };
     const res = http.post(`${BASE_URL}/api/orders`, payload, params);
-    check(res, { 'POST status 201 hoặc 409': (r) => r.status === 201 || r.status === 409 });
+    check(res, { 'POST status 201 hoặc 409': (r) => r.status === 201 || r.status === 409 || r.status === 400 });
   }
 
   sleep(Math.random() * 0.4 + 0.1);

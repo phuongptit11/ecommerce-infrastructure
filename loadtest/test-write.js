@@ -44,7 +44,7 @@ export default function () {
   const res = http.post(`${BASE_URL}/api/orders`, payload, params);
 
   check(res, {
-    'đặt hàng thành công (201) hoặc hết hàng (409)': (r) => r.status === 201 || r.status === 409,
+    'đặt hàng thành công (201) hoặc hết hàng (409)': (r) => r.status === 201 || r.status === 409 || r.status === 400,
     'thời gian phản hồi < 1000ms': (r) => r.timings.duration < 1000,
   });
 

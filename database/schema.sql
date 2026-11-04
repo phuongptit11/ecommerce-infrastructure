@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 -- ========================================================
 -- THIẾT KẾ CƠ SỞ DỮ LIỆU HỆ THỐNG TMĐT AURAMALL (ĐỀ TÀI 07)
 -- Mô hình phân vùng mạng 3 tầng: Nginx -> Node.js -> PostgreSQL
@@ -40,6 +41,9 @@ CREATE TABLE IF NOT EXISTS user_addresses (
 );
 
 -- 4. Bảng sản phẩm (products)
+=======
+-- Khởi tạo bảng danh mục sản phẩm (products)
+>>>>>>> 727ed08dc10d1ac677a63e43e9d50ad4445fc687
 CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,

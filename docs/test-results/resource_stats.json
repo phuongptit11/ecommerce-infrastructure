@@ -1,0 +1,148 @@
+﻿{
+    "write_level1":  [
+                         {
+                             "value":  "ecommerce_nginx,3.97%,29.32MiB / 7.612GiB,0.38%,174MB / 176MB,10.3MB / 12.3kB",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "4d6a643e-2eec-4ac1-86c3-d7fad1d2db9e",
+                             "PSShowComputerName":  false
+                         },
+                         {
+                             "value":  "ecommerce-backend-1,27.56%,107MiB / 7.612GiB,1.37%,122MB / 186MB,26MB / 0B",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "4d6a643e-2eec-4ac1-86c3-d7fad1d2db9e",
+                             "PSShowComputerName":  false
+                         },
+                         {
+                             "value":  "ecommerce_database,22.88%,60.41MiB / 7.612GiB,0.77%,19.3MB / 117MB,72.6MB / 10.7MB",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "4d6a643e-2eec-4ac1-86c3-d7fad1d2db9e",
+                             "PSShowComputerName":  false
+                         }
+                     ],
+    "write_level3":  [
+                         {
+                             "value":  "ecommerce_nginx,19.70%,34.06MiB / 7.612GiB,0.44%,202MB / 205MB,10.3MB / 12.3kB",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "24f33323-8eff-4127-9332-2a889a32b797",
+                             "PSShowComputerName":  false
+                         },
+                         {
+                             "value":  "ecommerce-backend-1,106.29%,102.5MiB / 7.612GiB,1.32%,142MB / 231MB,26MB / 0B",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "24f33323-8eff-4127-9332-2a889a32b797",
+                             "PSShowComputerName":  false
+                         },
+                         {
+                             "value":  "ecommerce_database,113.93%,66.82MiB / 7.612GiB,0.86%,40.5MB / 131MB,72.6MB / 148MB",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "24f33323-8eff-4127-9332-2a889a32b797",
+                             "PSShowComputerName":  false
+                         }
+                     ],
+    "idle":  [
+                 {
+                     "MemPerc":  "0.37%",
+                     "Name":  "ecommerce_nginx",
+                     "NetIO":  "1.62MB / 1.48MB",
+                     "MemUsage":  "28.48MiB / 7.612GiB",
+                     "BlockIO":  "10.3MB / 12.3kB",
+                     "CPU":  "0.00%"
+                 },
+                 {
+                     "MemPerc":  "0.34%",
+                     "Name":  "ecommerce-backend-1",
+                     "NetIO":  "605kB / 990kB",
+                     "MemUsage":  "26.82MiB / 7.612GiB",
+                     "BlockIO":  "13.8MB / 0B",
+                     "CPU":  "0.01%"
+                 },
+                 {
+                     "MemPerc":  "0.51%",
+                     "Name":  "ecommerce_database",
+                     "NetIO":  "325kB / 2.69MB",
+                     "MemUsage":  "40.04MiB / 7.612GiB",
+                     "BlockIO":  "71.2MB / 2.24MB",
+                     "CPU":  "0.01%"
+                 }
+             ],
+    "read_level1":  [
+                        {
+                            "value":  "ecommerce_nginx,5.07%,28.58MiB / 7.612GiB,0.37%,8.74MB / 8.66MB,10.3MB / 12.3kB",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "f16d072d-377d-40e4-bd63-ccff0a4914bb",
+                            "PSShowComputerName":  false
+                        },
+                        {
+                            "value":  "ecommerce-backend-1,29.66%,55.91MiB / 7.612GiB,0.72%,6.06MB / 9.23MB,18.1MB / 0B",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "f16d072d-377d-40e4-bd63-ccff0a4914bb",
+                            "PSShowComputerName":  false
+                        },
+                        {
+                            "value":  "ecommerce_database,18.14%,58.09MiB / 7.612GiB,0.75%,1.07MB / 7.46MB,71.2MB / 2.27MB",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "f16d072d-377d-40e4-bd63-ccff0a4914bb",
+                            "PSShowComputerName":  false
+                        }
+                    ],
+    "write_level2":  [
+                         {
+                             "value":  "ecommerce_nginx,17.89%,29.48MiB / 7.612GiB,0.38%,184MB / 185MB,10.3MB / 12.3kB",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "84dc6eb2-7ad2-4430-8ecf-d54d409f30d0",
+                             "PSShowComputerName":  false
+                         },
+                         {
+                             "value":  "ecommerce-backend-1,103.42%,63.19MiB / 7.612GiB,0.81%,129MB / 203MB,26MB / 0B",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "84dc6eb2-7ad2-4430-8ecf-d54d409f30d0",
+                             "PSShowComputerName":  false
+                         },
+                         {
+                             "value":  "ecommerce_database,85.00%,62.64MiB / 7.612GiB,0.80%,27.2MB / 122MB,72.6MB / 73.6MB",
+                             "PSComputerName":  "localhost",
+                             "RunspaceId":  "84dc6eb2-7ad2-4430-8ecf-d54d409f30d0",
+                             "PSShowComputerName":  false
+                         }
+                     ],
+    "read_level2":  [
+                        {
+                            "value":  "ecommerce_nginx,20.61%,29.56MiB / 7.612GiB,0.38%,52.2MB / 52.5MB,10.3MB / 12.3kB",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "a7b7e017-9902-41f3-b075-572ccb32e9f1",
+                            "PSShowComputerName":  false
+                        },
+                        {
+                            "value":  "ecommerce-backend-1,88.10%,79.86MiB / 7.612GiB,1.02%,34.7MB / 52.6MB,21.3MB / 0B",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "a7b7e017-9902-41f3-b075-572ccb32e9f1",
+                            "PSShowComputerName":  false
+                        },
+                        {
+                            "value":  "ecommerce_database,81.09%,59.08MiB / 7.612GiB,0.76%,5.35MB / 34.9MB,71.2MB / 2.6MB",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "a7b7e017-9902-41f3-b075-572ccb32e9f1",
+                            "PSShowComputerName":  false
+                        }
+                    ],
+    "read_level3":  [
+                        {
+                            "value":  "ecommerce_nginx,23.96%,33.34MiB / 7.612GiB,0.43%,127MB / 128MB,10.3MB / 12.3kB",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "ceea0be8-82cc-4369-921d-17fef000543a",
+                            "PSShowComputerName":  false
+                        },
+                        {
+                            "value":  "ecommerce-backend-1,105.18%,106.7MiB / 7.612GiB,1.37%,89.3MB / 135MB,21.3MB / 0B",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "ceea0be8-82cc-4369-921d-17fef000543a",
+                            "PSShowComputerName":  false
+                        },
+                        {
+                            "value":  "ecommerce_database,100.18%,58.39MiB / 7.612GiB,0.75%,13.1MB / 84.3MB,71.2MB / 2.69MB",
+                            "PSComputerName":  "localhost",
+                            "RunspaceId":  "ceea0be8-82cc-4369-921d-17fef000543a",
+                            "PSShowComputerName":  false
+                        }
+                    ]
+}

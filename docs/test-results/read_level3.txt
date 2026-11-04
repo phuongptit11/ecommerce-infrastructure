@@ -1,0 +1,430 @@
+﻿
+         /\      Grafana   /ΓÇ╛ΓÇ╛/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ΓÇ╛ΓÇ╛\ 
+  /          \   |   (  |  (ΓÇ╛)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: loadtest/test-read.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 300 max VUs, 1m0s max duration (incl. graceful stop):
+              * default: 300 looping VUs for 30s (gracefulStop: 30s)
+
+k6 : time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+At D:\ecommerce-infrastructure\scripts\run_kt2.ps1:78 char:11
++ $output = k6 run --vus 300 --duration 30s --summary-export="$resultsD ...
++           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (time="2026-11-0...ly refused it.":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=2&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+time="2026-11-04T11:28:27+07:00" level=warning msg="Request Failed" error="Get 
+\"http://localhost/api/products?page=1&limit=10\": dial tcp 127.0.0.1:80: connectex: No connection could be made 
+because the target machine actively refused it."
+
+running (0m00.9s), 300/300 VUs, 228 complete and 0 interrupted iterations
+default   [   3% ] 300 VUs  00.9s/30s
+
+running (0m01.9s), 300/300 VUs, 513 complete and 0 interrupted iterations
+default   [   6% ] 300 VUs  01.9s/30s
+
+running (0m02.9s), 300/300 VUs, 839 complete and 0 interrupted iterations
+default   [  10% ] 300 VUs  02.9s/30s
+
+running (0m03.9s), 300/300 VUs, 1154 complete and 0 interrupted iterations
+default   [  13% ] 300 VUs  03.9s/30s
+
+running (0m04.9s), 300/300 VUs, 1424 complete and 0 interrupted iterations
+default   [  16% ] 300 VUs  04.9s/30s
+
+running (0m05.9s), 300/300 VUs, 1749 complete and 0 interrupted iterations
+default   [  20% ] 300 VUs  05.9s/30s
+
+running (0m06.9s), 300/300 VUs, 2001 complete and 0 interrupted iterations
+default   [  23% ] 300 VUs  06.9s/30s
+
+running (0m07.9s), 300/300 VUs, 2272 complete and 0 interrupted iterations
+default   [  26% ] 300 VUs  07.9s/30s
+
+running (0m08.9s), 300/300 VUs, 2656 complete and 0 interrupted iterations
+default   [  30% ] 300 VUs  08.9s/30s
+
+running (0m09.9s), 300/300 VUs, 2969 complete and 0 interrupted iterations
+default   [  33% ] 300 VUs  09.9s/30s
+
+running (0m10.9s), 300/300 VUs, 3345 complete and 0 interrupted iterations
+default   [  36% ] 300 VUs  10.9s/30s
+
+running (0m11.9s), 300/300 VUs, 3706 complete and 0 interrupted iterations
+default   [  40% ] 300 VUs  11.9s/30s
+
+running (0m12.9s), 300/300 VUs, 4035 complete and 0 interrupted iterations
+default   [  43% ] 300 VUs  12.9s/30s
+
+running (0m13.9s), 300/300 VUs, 4353 complete and 0 interrupted iterations
+default   [  46% ] 300 VUs  13.9s/30s
+
+running (0m14.9s), 300/300 VUs, 4706 complete and 0 interrupted iterations
+default   [  50% ] 300 VUs  14.9s/30s
+
+running (0m15.9s), 300/300 VUs, 5053 complete and 0 interrupted iterations
+default   [  53% ] 300 VUs  15.9s/30s
+
+running (0m16.9s), 300/300 VUs, 5318 complete and 0 interrupted iterations
+default   [  56% ] 300 VUs  16.9s/30s
+
+running (0m17.9s), 300/300 VUs, 5640 complete and 0 interrupted iterations
+default   [  60% ] 300 VUs  17.9s/30s
+
+running (0m18.9s), 300/300 VUs, 6008 complete and 0 interrupted iterations
+default   [  63% ] 300 VUs  18.9s/30s
+
+running (0m19.9s), 300/300 VUs, 6328 complete and 0 interrupted iterations
+default   [  66% ] 300 VUs  19.9s/30s
+
+running (0m20.9s), 300/300 VUs, 6681 complete and 0 interrupted iterations
+default   [  70% ] 300 VUs  20.9s/30s
+
+running (0m21.9s), 300/300 VUs, 7049 complete and 0 interrupted iterations
+default   [  73% ] 300 VUs  21.9s/30s
+
+running (0m22.9s), 300/300 VUs, 7379 complete and 0 interrupted iterations
+default   [  76% ] 300 VUs  22.9s/30s
+
+running (0m23.9s), 300/300 VUs, 7737 complete and 0 interrupted iterations
+default   [  80% ] 300 VUs  23.9s/30s
+
+running (0m24.9s), 300/300 VUs, 8083 complete and 0 interrupted iterations
+default   [  83% ] 300 VUs  24.9s/30s
+
+running (0m25.9s), 300/300 VUs, 8451 complete and 0 interrupted iterations
+default   [  86% ] 300 VUs  25.9s/30s
+
+running (0m26.9s), 300/300 VUs, 8775 complete and 0 interrupted iterations
+default   [  90% ] 300 VUs  26.9s/30s
+
+running (0m27.9s), 300/300 VUs, 9149 complete and 0 interrupted iterations
+default   [  93% ] 300 VUs  27.9s/30s
+
+running (0m28.9s), 300/300 VUs, 9505 complete and 0 interrupted iterations
+default   [  96% ] 300 VUs  28.9s/30s
+
+running (0m29.9s), 300/300 VUs, 9867 complete and 0 interrupted iterations
+default   [ 100% ] 300 VUs  29.9s/30s
+
+running (0m30.9s), 001/300 VUs, 10190 complete and 0 interrupted iterations
+default Γåô [ 100% ] 300 VUs  30s
+
+
+  Γûê THRESHOLDS 
+
+    http_req_duration
+    Γ£ô 'p(95)<1000' p(95)=848.4ms
+
+    http_req_failed
+    Γ£ô 'rate<0.05' rate=0.89%
+
+
+  Γûê TOTAL RESULTS 
+
+    checks_total.......: 20382  658.807473/s
+    checks_succeeded...: 99.10% 20200 out of 20382
+    checks_failed......: 0.89%  182 out of 20382
+
+    Γ£ù m├ú phß║ún hß╗ôi l├á 200
+      Γå│  99% ΓÇö Γ£ô 10100 / Γ£ù 91
+    Γ£ù c├│ dß╗» liß╗çu sß║ún phß║⌐m
+      Γå│  99% ΓÇö Γ£ô 10100 / Γ£ù 91
+
+    HTTP
+    http_req_duration..............: avg=593.04ms min=0s       med=566.34ms max=2.48s p(90)=795.94ms p(95)=848.4ms
+      { expected_response:true }...: avg=598.39ms min=16.72ms  med=567.02ms max=2.48s p(90)=797.09ms p(95)=848.8ms
+    http_req_failed................: 0.89%  91 out of 10191
+    http_reqs......................: 10191  329.403736/s
+
+    EXECUTION
+    iteration_duration.............: avg=895.08ms min=131.28ms med=882.57ms max=2.95s p(90)=1.11s    p(95)=1.2s   
+    iterations.....................: 10191  329.403736/s
+    vus............................: 1      min=1           max=300
+    vus_max........................: 300    min=300         max=300
+
+    NETWORK
+    data_received..................: 78 MB  2.5 MB/s
+    data_sent......................: 939 kB 30 kB/s
+
+
+
+
+running (0m30.9s), 000/300 VUs, 10191 complete and 0 interrupted iterations
+default Γ£ô [ 100% ] 300 VUs  30s
