@@ -116,10 +116,23 @@ Content-Type: application/json
   "birthday": "1998-05-15"
 }
 
-### 16. Đăng bán sản phẩm mới (Kênh người bán, cần đăng nhập)
+### Đăng nhập tài khoản người bán mẫu (kênh người bán chỉ dành cho seller/admin)
+# @name sellerLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "login": "auramall_seller",
+  "password": "Password123"
+}
+
+### Lưu token người bán
+@sellerToken = {{sellerLogin.response.body.token}}
+
+### 16. Đăng bán sản phẩm mới (người bán; dùng authToken của người mua sẽ bị 403)
 # @name createProduct
 POST {{baseUrl}}/api/products
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 {
@@ -137,7 +150,7 @@ Content-Type: application/json
 
 ### 17. Sửa sản phẩm do mình đăng bán
 PUT {{baseUrl}}/api/products/{{newProductId}}
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 {
@@ -150,16 +163,16 @@ Content-Type: application/json
 
 ### 18. Danh sách sản phẩm tôi đang bán
 GET {{baseUrl}}/api/user/products
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{sellerToken}}
 Accept: application/json
 
 ### 19. Xóa sản phẩm do mình đăng bán (409 nếu đã có đơn hàng)
 DELETE {{baseUrl}}/api/products/{{newProductId}}
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{sellerToken}}
 
 ### 20. Sửa sản phẩm của AuraMall (không phải của mình) -> 403
 PUT {{baseUrl}}/api/products/1
-Authorization: Bearer {{authToken}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 {
@@ -172,3 +185,82 @@ Content-Type: application/json
 ### 21. Đặc tả OpenAPI (giao diện Swagger: {{baseUrl}}/api/docs/)
 GET {{baseUrl}}/api/docs/openapi.json
 Accept: application/json
+
+### 22. Người mua gọi API người bán -> 403
+GET {{baseUrl}}/api/user/products
+Authorization: Bearer {{authToken}}
+
+### 23. Đơn hàng có sản phẩm của shop (người bán)
+GET {{baseUrl}}/api/seller/orders
+Authorization: Bearer {{sellerToken}}
+Accept: application/json
+
+### 24. Đổi mật khẩu (sai mật khẩu hiện tại -> 400)
+PUT {{baseUrl}}/api/auth/password
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "SaiMatKhau1",
+  "newPassword": "Matkhaumoi1",
+  "confirmPassword": "Matkhaumoi1"
+}
+
+### 25. Cấu hình đăng nhập Google (googleClientId = null nếu chưa đặt GOOGLE_CLIENT_ID)
+GET {{baseUrl}}/api/auth/config
+Accept: application/json
+
+### Đăng nhập tài khoản quản trị mẫu
+# @name adminLogin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "login": "auramall_admin",
+  "password": "Password123"
+}
+
+### Lưu token quản trị
+@adminToken = {{adminLogin.response.body.token}}
+
+### 26. Thống kê toàn hệ thống (admin)
+GET {{baseUrl}}/api/admin/stats
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 27. Danh sách người bán (admin)
+GET {{baseUrl}}/api/admin/users?role=seller
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 28. Phân quyền: nâng tài khoản id 1 lên người bán (admin)
+PATCH {{baseUrl}}/api/admin/users/1/role
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "role": "seller"
+}
+
+### 29. Trả lại quyền người mua cho tài khoản id 1
+PATCH {{baseUrl}}/api/admin/users/1/role
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "role": "user"
+}
+
+### 30. Đơn hàng chờ xác nhận (admin)
+GET {{baseUrl}}/api/admin/orders?status=CREATED&page=1&limit=20
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 31. Xác nhận đơn hàng id 1 (admin; CANCELLED sẽ hoàn lại tồn kho)
+PATCH {{baseUrl}}/api/admin/orders/1/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "CONFIRMED"
+}

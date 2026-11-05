@@ -18,8 +18,10 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
-    phone VARCHAR(20) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    phone VARCHAR(20) NOT NULL, -- tài khoản tạo bằng Google để trống, bổ sung trong hồ sơ
+    password_hash VARCHAR(255), -- NULL: tài khoản chỉ đăng nhập bằng Google, chưa đặt mật khẩu
+    role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'seller', 'user')), -- phân quyền
+    google_sub VARCHAR(255) UNIQUE, -- mã tài khoản Google đã liên kết
     gender VARCHAR(10) DEFAULT 'other', -- nam, nu, khac
     birthday DATE,
     avatar_url TEXT,

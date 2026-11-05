@@ -22,6 +22,10 @@
     <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5" /></symbol>
     <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 5.5L16 12l-6.5 6.5" /></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M5.5 9.5L12 16l6.5-6.5" /></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M5.5 14.5L12 8l6.5 6.5" /></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 4.5v15M4.5 8L8 4.5 11.5 8M16 19.5v-15M12.5 16l3.5 3.5 3.5-3.5" /></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="1" /><path d="M8.5 10.5V7.5a3.5 3.5 0 017 0v3" /></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20.5h16M7 17v-5M12 17V7M17 17v-8" /></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13.5 6.5L19 12l-5.5 5.5" /></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
     <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
@@ -57,7 +61,9 @@
         <span class="hide-md">Nginx → Node.js → PostgreSQL</span>
       </div>
       <nav class="util-right hide-sm" aria-label="Liên kết tiện ích">
-        <a href="#/sell" class="link-lux">Kênh người bán</a>
+        <a href="#/sell" class="link-lux" data-roles="seller admin" hidden>Kênh người bán</a>
+        <a href="#/register?type=seller" class="link-lux" data-roles="guest" hidden>Đăng ký bán hàng</a>
+        <a href="#/admin" class="link-lux" data-roles="admin" hidden>Quản trị</a>
         <a href="/api/docs/" target="_blank" rel="noopener" class="link-lux">Tài liệu API</a>
         <span>Hotline 1900 8899</span>
       </nav>
@@ -79,7 +85,8 @@
         </button>
         <a class="nav-link" href="#/products?flashSale=1" data-nav="flash">Flash Sale</a>
         <a class="nav-link" href="#/products?sort=newest" data-nav="newest">Hàng mới</a>
-        <a class="nav-link" href="#/sell" data-nav="sell">Đăng bán</a>
+        <a class="nav-link" href="#/sell" data-nav="sell" data-roles="seller admin" hidden>Đăng bán</a>
+        <a class="nav-link" href="#/admin" data-nav="admin" data-roles="admin" hidden>Quản trị</a>
       </nav>
 
       <div class="header-actions">
@@ -95,9 +102,12 @@
           <div class="dropdown" id="accountDropdown">
             <div class="dropdown-head" id="accountDropdownHead"></div>
             <a href="#/account/profile"><svg class="icon icon-sm"><use href="#i-user" /></svg>Hồ sơ của tôi</a>
+            <a href="#/account/password"><svg class="icon icon-sm"><use href="#i-lock" /></svg>Đổi mật khẩu</a>
             <a href="#/account/addresses"><svg class="icon icon-sm"><use href="#i-pin" /></svg>Địa chỉ nhận hàng</a>
             <a href="#/account/orders"><svg class="icon icon-sm"><use href="#i-box" /></svg>Đơn mua</a>
-            <a href="#/account/products"><svg class="icon icon-sm"><use href="#i-store" /></svg>Sản phẩm của tôi</a>
+            <a href="#/account/products" data-roles="seller admin" hidden><svg class="icon icon-sm"><use href="#i-store" /></svg>Sản phẩm của tôi</a>
+            <a href="#/account/sales" data-roles="seller admin" hidden><svg class="icon icon-sm"><use href="#i-doc" /></svg>Đơn hàng của shop</a>
+            <a href="#/admin" data-roles="admin" hidden><svg class="icon icon-sm"><use href="#i-chart" /></svg>Quản trị hệ thống</a>
             <button data-action="logout"><svg class="icon icon-sm"><use href="#i-logout" /></svg>Đăng xuất</button>
           </div>
         </div>
@@ -158,7 +168,8 @@
         <a href="#/products">Tất cả sản phẩm</a>
         <a href="#/products?flashSale=1">Flash Sale</a>
         <a href="#/products?sort=newest">Hàng mới</a>
-        <a href="#/sell">Đăng bán sản phẩm</a>
+        <a href="#/sell" data-roles="seller admin" hidden>Đăng bán sản phẩm</a>
+        <a href="#/admin" data-roles="admin" hidden>Quản trị hệ thống</a>
         <a href="#/cart">Giỏ hàng</a>
         <a href="#/account/profile">Tài khoản</a>
         <a href="/api/docs/" target="_blank" rel="noopener">Tài liệu API</a>
@@ -192,7 +203,7 @@
           <h4>Tài khoản</h4>
           <a href="#/account/orders" class="link-lux">Đơn mua</a>
           <a href="#/account/addresses" class="link-lux">Sổ địa chỉ</a>
-          <a href="#/sell" class="link-lux">Kênh người bán</a>
+          <a href="#/sell" class="link-lux" data-roles="seller admin" hidden>Kênh người bán</a>
           <a href="/api/docs/" target="_blank" rel="noopener" class="link-lux">Tài liệu API (Swagger)</a>
         </div>
         <div class="footer-col">

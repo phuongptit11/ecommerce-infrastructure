@@ -19,10 +19,12 @@ ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
 
--- 2. Nạp tài khoản mẫu người dùng
--- Mật khẩu mặc định: Password123 (Đạt chuẩn tối thiểu 8 ký tự, chữ hoa, chữ thường và số)
-INSERT INTO users (id, username, email, phone, password_hash, gender, birthday, avatar_url) VALUES
-(1, 'auramall_user', 'user@auramall.vn', '0969795794', 'auramall_salt_2026:65c7a1753ec3bd87b6778e501e946f368c4e4c4186e3c43f82d531eed6393e83a1dbf4da15d567a56a3fb6cf8ae517f35389e5dde5ecf9a63bfc81bae53501ac', 'nam', '1998-05-15', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80')
+-- 2. Nạp tài khoản mẫu cho 3 quyền: người mua (user), người bán (seller), quản trị (admin)
+-- Mật khẩu mặc định cả 3 tài khoản: Password123 (Đạt chuẩn tối thiểu 8 ký tự, chữ hoa, chữ thường và số)
+INSERT INTO users (id, username, email, phone, password_hash, role, gender, birthday, avatar_url) VALUES
+(1, 'auramall_user', 'user@auramall.vn', '0969795794', 'auramall_salt_2026:65c7a1753ec3bd87b6778e501e946f368c4e4c4186e3c43f82d531eed6393e83a1dbf4da15d567a56a3fb6cf8ae517f35389e5dde5ecf9a63bfc81bae53501ac', 'user', 'nam', '1998-05-15', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80'),
+(2, 'auramall_seller', 'seller@auramall.vn', '0912345678', 'auramall_salt_seller:305af70b667dbdd263ecc65df505e3902410d1d4ce5aac12a655852709815cabe2a32746ddeeb67e3eaf8c635cb5bf69298e0146e7c77f96a3fa758ceb7c7483', 'seller', 'nu', '1995-08-20', NULL),
+(3, 'auramall_admin', 'admin@auramall.vn', '0987654321', 'auramall_salt_admin:46cf8fb666a4fe54dca9ca8eeb2bbef1690ab8eca207613665a5a068541488f2862e90e1949ea413495a37a6c5b5827040f630902a41a35d61f1e6ef5f95f1b1', 'admin', 'khac', NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));
@@ -463,3 +465,6 @@ ON CONFLICT (id) DO UPDATE SET
     description = EXCLUDED.description;
 
 SELECT setval('products_id_seq', (SELECT MAX(id) FROM products));
+
+-- 5. Dòng sản phẩm thương hiệu Aura do tài khoản người bán mẫu đăng (để thử kênh người bán)
+UPDATE products SET seller_id = 2 WHERE id IN (21, 22, 23, 24);

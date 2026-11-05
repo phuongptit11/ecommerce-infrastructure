@@ -20,6 +20,14 @@ const MAX_PRICE = 9999999999; // giới hạn NUMERIC(12, 2)
 const MAX_STOCK = 1000000;
 const MAX_PRODUCT_IMAGES = 8;
 const JWT_SECRET = process.env.JWT_SECRET || 'auramall_jwt_secret_ecommerce_2026';
+// OAuth Client ID tạo tại Google Cloud Console; để trống thì tắt đăng nhập Google
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+
+// Phân quyền: admin (quản trị), seller (người bán), user (người mua)
+const ROLES = ['admin', 'seller', 'user'];
+const SELF_SIGNUP_ROLES = ['user', 'seller']; // quyền admin chỉ do admin khác cấp
+const ORDER_STATUSES = ['CREATED', 'CONFIRMED', 'DELIVERING', 'COMPLETED', 'CANCELLED'];
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 // Connection pool PostgreSQL
 const pool = new Pool({
@@ -124,6 +132,103 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ status: 'fail', message: 'Vui lòng đăng nhập để thực hiện thao tác này.' });
   }
   next();
+}
+
+// Chỉ cho các vai trò được liệt kê. Vai trò đọc từ CSDL nên admin đổi quyền là có hiệu lực ngay, không cần đăng nhập lại.
+function requireRole(...roles) {
+  return async (req, res, next) => {
+    if (!req.user || !req.user.userId) {
+      throw new HttpError(401, 'Vui lòng đăng nhập để thực hiện thao tác này.');
+    }
+    const result = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.userId]);
+    if (result.rowCount === 0) {
+      throw new HttpError(401, 'Tài khoản không còn tồn tại, vui lòng đăng nhập lại.');
+    }
+    req.user.role = result.rows[0].role;
+    if (!roles.includes(req.user.role)) {
+      throw new HttpError(403, 'Bạn không có quyền thực hiện thao tác này.');
+    }
+    next();
+  };
+}
+
+// ==========================================
+// ĐĂNG NHẬP GOOGLE: kiểm tra ID token (chữ ký RS256 theo khóa công khai của Google)
+// ==========================================
+const GOOGLE_CERTS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
+let googleKeys = { byKid: new Map(), expiresAt: 0 };
+
+async function getGoogleKey(kid) {
+  if (Date.now() > googleKeys.expiresAt || !googleKeys.byKid.has(kid)) {
+    let res;
+    try {
+      res = await fetch(GOOGLE_CERTS_URL);
+    } catch {
+      res = null;
+    }
+    if (!res || !res.ok) {
+      throw new HttpError(502, 'Không kết nối được máy chủ Google để xác thực, vui lòng thử lại.');
+    }
+    const { keys } = await res.json();
+    const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') || '')?.[1]) || 3600;
+    googleKeys = {
+      byKid: new Map(keys.map((jwk) => [jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' })])),
+      expiresAt: Date.now() + maxAge * 1000,
+    };
+  }
+  return googleKeys.byKid.get(kid);
+}
+
+async function verifyGoogleIdToken(idToken) {
+  const invalid = new HttpError(401, 'Phiên đăng nhập Google không hợp lệ hoặc đã hết hạn.');
+  const parts = typeof idToken === 'string' ? idToken.split('.') : [];
+  if (parts.length !== 3) throw invalid;
+
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    throw invalid;
+  }
+  if (header.alg !== 'RS256') throw invalid;
+
+  const key = await getGoogleKey(header.kid);
+  const signed = Buffer.from(`${parts[0]}.${parts[1]}`);
+  if (!key || !crypto.verify('RSA-SHA256', signed, key, Buffer.from(parts[2], 'base64url'))) throw invalid;
+
+  const issuerOk = payload.iss === 'accounts.google.com' || payload.iss === 'https://accounts.google.com';
+  if (!issuerOk || payload.aud !== GOOGLE_CLIENT_ID || !(payload.exp * 1000 > Date.now())) throw invalid;
+  if (!payload.email || !(payload.email_verified === true || payload.email_verified === 'true')) {
+    throw new HttpError(400, 'Email Google chưa được xác minh.');
+  }
+  return payload;
+}
+
+// Tên đăng nhập cho tài khoản tạo từ Google: lấy từ email, thêm số nếu trùng
+async function uniqueUsername(email) {
+  let base = slugify(email.split('@')[0]).replace(/-/g, '_').slice(0, 24);
+  if (base.length < 3) base = `user_${base}`;
+  let candidate = base;
+  while ((await pool.query('SELECT 1 FROM users WHERE username = $1', [candidate])).rowCount > 0) {
+    candidate = `${base}_${crypto.randomInt(1000, 10000)}`;
+  }
+  return candidate;
+}
+
+// Thông tin người dùng trả về khi đăng ký / đăng nhập
+function authUser(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    phone: row.phone,
+    gender: row.gender,
+    birthday: row.birthday,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+  };
 }
 
 // Helper kiểm tra số nguyên
@@ -236,13 +341,13 @@ async function validateProductInput(body) {
   };
 }
 
-// Sản phẩm phải tồn tại và do chính người dùng đăng bán
-async function findOwnProduct(productId, userId) {
+// Sản phẩm phải tồn tại và do chính người bán đăng (admin được quản lý mọi sản phẩm)
+async function findOwnProduct(productId, user) {
   const result = await pool.query('SELECT seller_id FROM products WHERE id = $1', [productId]);
   if (result.rowCount === 0) {
     throw new HttpError(404, 'Không tìm thấy sản phẩm.');
   }
-  if (result.rows[0].seller_id !== userId) {
+  if (user.role !== 'admin' && result.rows[0].seller_id !== user.userId) {
     throw new HttpError(403, 'Bạn chỉ có thể thay đổi sản phẩm do chính mình đăng bán.');
   }
 }
@@ -294,11 +399,16 @@ app.get('/health', async (req, res) => {
 
 // Màn Đăng ký
 app.post('/api/auth/register', async (req, res) => {
-  const { username, email, phone, password, confirmPassword } = req.body || {};
+  const { username, email, phone, password, confirmPassword, role = 'user' } = req.body || {};
 
   // Validate các trường bắt buộc
   if (!username || !email || !phone || !password) {
     throw new HttpError(400, 'Vui lòng điền đầy đủ tất cả các trường thông tin.');
+  }
+
+  // Loại tài khoản: người mua hoặc người bán, quyền admin không tự đăng ký được
+  if (!SELF_SIGNUP_ROLES.includes(role)) {
+    throw new HttpError(400, 'Loại tài khoản chỉ được chọn người mua (user) hoặc người bán (seller).');
   }
 
   const cleanUsername = String(username).trim();
@@ -321,8 +431,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   // Validate mật khẩu: tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số (theo PDF màn 1)
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-  if (!passwordRegex.test(password)) {
+  if (!PASSWORD_RULE.test(password)) {
     throw new HttpError(400, 'Mật khẩu tối thiểu 8 ký tự, phải bao gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số.');
   }
 
@@ -345,10 +454,10 @@ app.post('/api/auth/register', async (req, res) => {
 
   const passwordHash = hashPassword(password);
   const insertUser = await pool.query(
-    `INSERT INTO users (username, email, phone, password_hash)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, username, email, phone, gender, birthday, avatar_url, created_at`,
-    [cleanUsername, cleanEmail, cleanPhone, passwordHash]
+    `INSERT INTO users (username, email, phone, password_hash, role)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, username, email, phone, gender, birthday, avatar_url, role, created_at`,
+    [cleanUsername, cleanEmail, cleanPhone, passwordHash, role]
   );
 
   const newUser = insertUser.rows[0];
@@ -358,15 +467,7 @@ app.post('/api/auth/register', async (req, res) => {
     status: 'success',
     message: 'Đăng ký tài khoản thành công!',
     token,
-    user: {
-      id: newUser.id,
-      username: newUser.username,
-      email: newUser.email,
-      phone: newUser.phone,
-      gender: newUser.gender,
-      birthday: newUser.birthday,
-      avatarUrl: newUser.avatar_url,
-    },
+    user: authUser(newUser),
   });
 });
 
@@ -382,7 +483,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   // Tìm kiếm theo username, email hoặc số điện thoại
   const result = await pool.query(
-    `SELECT id, username, email, phone, password_hash, gender, birthday, avatar_url
+    `SELECT id, username, email, phone, password_hash, gender, birthday, avatar_url, role
      FROM users
      WHERE username = $1 OR email = $1 OR phone = $1`,
     [cleanLogin]
@@ -393,6 +494,9 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const user = result.rows[0];
+  if (!user.password_hash) {
+    throw new HttpError(401, 'Tài khoản này được tạo bằng Google. Hãy chọn "Đăng nhập với Google".');
+  }
   const isValid = verifyPassword(password, user.password_hash);
   if (!isValid) {
     throw new HttpError(401, 'Tài khoản hoặc mật khẩu không chính xác.');
@@ -406,22 +510,101 @@ app.post('/api/auth/login', async (req, res) => {
     status: 'success',
     message: 'Đăng nhập thành công!',
     token,
-    user: {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      phone: user.phone,
-      gender: user.gender,
-      birthday: user.birthday,
-      avatarUrl: user.avatar_url,
-    },
+    user: authUser(user),
   });
+});
+
+// Cấu hình đăng nhập Google cho giao diện (Client ID là thông tin công khai)
+app.get('/api/auth/config', (req, res) => {
+  res.json({ status: 'success', data: { googleClientId: GOOGLE_CLIENT_ID || null } });
+});
+
+// Đăng nhập / đăng ký bằng Google: giao diện gửi ID token nhận từ nút "Sign in with Google"
+app.post('/api/auth/google', async (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    throw new HttpError(503, 'Đăng nhập Google chưa được cấu hình (thiếu GOOGLE_CLIENT_ID).');
+  }
+  const { credential, role = 'user' } = req.body || {};
+  if (!SELF_SIGNUP_ROLES.includes(role)) {
+    throw new HttpError(400, 'Loại tài khoản chỉ được chọn người mua (user) hoặc người bán (seller).');
+  }
+  const google = await verifyGoogleIdToken(credential);
+  const email = String(google.email).toLowerCase();
+  const columns = 'id, username, email, phone, gender, birthday, avatar_url, role, google_sub';
+
+  let result = await pool.query(
+    `SELECT ${columns} FROM users WHERE google_sub = $1 OR email = $2
+     ORDER BY (google_sub = $1) DESC NULLS LAST LIMIT 1`,
+    [google.sub, email]
+  );
+  let user = result.rows[0];
+  let created = false;
+
+  if (user && user.google_sub && user.google_sub !== google.sub) {
+    throw new HttpError(409, 'Email này đã liên kết với một tài khoản Google khác.');
+  }
+  if (user && !user.google_sub) {
+    // Email đã đăng ký bằng mật khẩu: Google đã xác minh email nên liên kết vào tài khoản đó
+    result = await pool.query(`UPDATE users SET google_sub = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING ${columns}`, [
+      google.sub,
+      user.id,
+    ]);
+    user = result.rows[0];
+  } else if (!user) {
+    result = await pool.query(
+      `INSERT INTO users (username, email, phone, password_hash, role, google_sub, avatar_url)
+       VALUES ($1, $2, '', NULL, $3, $4, $5)
+       RETURNING ${columns}`,
+      [await uniqueUsername(email), email, role, google.sub, google.picture || null]
+    );
+    user = result.rows[0];
+    created = true;
+  }
+
+  const token = generateToken({ userId: user.id, username: user.username }, 86400 * 30);
+  res.status(created ? 201 : 200).json({
+    status: 'success',
+    message: created ? 'Đã tạo tài khoản bằng Google!' : 'Đăng nhập thành công!',
+    token,
+    user: authUser(user),
+  });
+});
+
+// Đổi mật khẩu (tài khoản tạo bằng Google chưa có mật khẩu thì đặt mới, không cần mật khẩu cũ)
+app.put('/api/auth/password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword, confirmPassword } = req.body || {};
+  const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.user.userId]);
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy người dùng.');
+  }
+  const { password_hash: currentHash } = result.rows[0];
+
+  // Sai mật khẩu cũ trả 400 (không phải 401) để giao diện không hiểu nhầm là phiên đăng nhập hết hạn
+  if (currentHash && !verifyPassword(String(currentPassword ?? ''), currentHash)) {
+    throw new HttpError(400, 'Mật khẩu hiện tại không chính xác.');
+  }
+  if (typeof newPassword !== 'string' || !PASSWORD_RULE.test(newPassword)) {
+    throw new HttpError(400, 'Mật khẩu mới tối thiểu 8 ký tự, phải bao gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số.');
+  }
+  if (newPassword !== confirmPassword) {
+    throw new HttpError(400, 'Mật khẩu nhập lại không khớp.');
+  }
+  if (currentHash && verifyPassword(newPassword, currentHash)) {
+    throw new HttpError(400, 'Mật khẩu mới phải khác mật khẩu hiện tại.');
+  }
+
+  await pool.query('UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
+    hashPassword(newPassword),
+    req.user.userId,
+  ]);
+  res.json({ status: 'success', message: currentHash ? 'Đổi mật khẩu thành công.' : 'Đặt mật khẩu thành công.' });
 });
 
 // Lấy thông tin tài khoản hiện tại (Me)
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const result = await pool.query(
-    `SELECT id, username, email, phone, gender, birthday, avatar_url, created_at
+    `SELECT id, username, email, phone, gender, birthday, avatar_url, created_at, role,
+            (password_hash IS NOT NULL) AS has_password, (google_sub IS NOT NULL) AS google_linked
      FROM users WHERE id = $1`,
     [req.user.userId]
   );
@@ -610,11 +793,11 @@ app.get('/api/products/:id', async (req, res) => {
 });
 
 // ==========================================
-// 4b. ĐĂNG BÁN SẢN PHẨM (KÊNH NGƯỜI BÁN) - cần đăng nhập
+// 4b. ĐĂNG BÁN SẢN PHẨM (KÊNH NGƯỜI BÁN) - chỉ người bán và admin
 // ==========================================
 
 // Đăng bán sản phẩm mới
-app.post('/api/products', requireAuth, async (req, res) => {
+app.post('/api/products', requireRole('seller', 'admin'), async (req, res) => {
   const input = await validateProductInput(req.body);
   const inserted = await pool.query(
     `INSERT INTO products (
@@ -645,9 +828,9 @@ app.post('/api/products', requireAuth, async (req, res) => {
 });
 
 // Sửa sản phẩm do mình đăng bán
-app.put('/api/products/:id', requireAuth, async (req, res) => {
+app.put('/api/products/:id', requireRole('seller', 'admin'), async (req, res) => {
   const id = parseId(req.params.id, 'id');
-  await findOwnProduct(id, req.user.userId);
+  await findOwnProduct(id, req.user);
   const input = await validateProductInput(req.body);
 
   await pool.query(
@@ -674,9 +857,9 @@ app.put('/api/products/:id', requireAuth, async (req, res) => {
 });
 
 // Xóa sản phẩm do mình đăng bán (chỉ khi chưa phát sinh đơn hàng)
-app.delete('/api/products/:id', requireAuth, async (req, res) => {
+app.delete('/api/products/:id', requireRole('seller', 'admin'), async (req, res) => {
   const id = parseId(req.params.id, 'id');
-  await findOwnProduct(id, req.user.userId);
+  await findOwnProduct(id, req.user);
 
   try {
     await pool.query('DELETE FROM products WHERE id = $1', [id]);
@@ -692,7 +875,7 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
 });
 
 // Danh sách sản phẩm do người dùng hiện tại đăng bán
-app.get('/api/user/products', requireAuth, async (req, res) => {
+app.get('/api/user/products', requireRole('seller', 'admin'), async (req, res) => {
   const result = await pool.query(
     `SELECT ${DETAILED_PRODUCT_COLUMNS}
      FROM products p
@@ -740,7 +923,8 @@ app.post('/api/orders', async (req, res) => {
   const shippingAddress = req.body.shippingAddress || 'Địa chỉ nhận hàng mặc định';
   const paymentMethod = req.body.paymentMethod === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : 'COD';
   const buyerNote = req.body.note || req.body.buyerNote || '';
-  const userId = req.user ? req.user.userId : (toInteger(req.body.userId) || 1); // fallback user 1
+  // Không có token (k6 loadtest): đơn của khách vãng lai, user_id = NULL, không gán vào tài khoản nào
+  const userId = req.user ? req.user.userId : null;
 
   const client = await pool.connect();
 
@@ -858,9 +1042,9 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// Tra cứu danh sách đơn hàng
-app.get('/api/orders', async (req, res) => {
-  const userId = req.user ? req.user.userId : (toInteger(req.query.userId) || null);
+// Tra cứu danh sách đơn hàng của chính người đang đăng nhập (admin xem toàn bộ tại /api/admin/orders)
+app.get('/api/orders', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
 
   let querySql = `
     SELECT o.id, o.order_code, o.quantity, o.total_price, o.shipping_fee, o.final_total,
@@ -881,24 +1065,19 @@ app.get('/api/orders', async (req, res) => {
     LEFT JOIN order_items oi ON o.id = oi.order_id
   `;
 
-  const params = [];
-  if (userId) {
-    querySql += ` WHERE o.user_id = $1 `;
-    params.push(userId);
-  }
-
   querySql += `
+    WHERE o.user_id = $1
     GROUP BY o.id, p.name, p.image_url
     ORDER BY o.id DESC
     LIMIT 50
   `;
 
-  const result = await pool.query(querySql, params);
+  const result = await pool.query(querySql, [userId]);
   res.json({ status: 'success', total: result.rowCount, data: result.rows });
 });
 
-// Tra cứu 1 đơn hàng cụ thể
-app.get('/api/orders/:id', async (req, res) => {
+// Tra cứu 1 đơn hàng cụ thể: chỉ chủ đơn hoặc admin
+app.get('/api/orders/:id', requireAuth, async (req, res) => {
   const id = parseId(req.params.id, 'id');
   const result = await pool.query(
     `SELECT o.*, COALESCE(json_agg(
@@ -922,7 +1101,15 @@ app.get('/api/orders/:id', async (req, res) => {
     throw new HttpError(404, 'Không tìm thấy đơn hàng.');
   }
 
-  res.json({ status: 'success', data: result.rows[0] });
+  const order = result.rows[0];
+  if (order.user_id !== req.user.userId) {
+    const viewer = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.userId]);
+    if (viewer.rows[0]?.role !== 'admin') {
+      throw new HttpError(403, 'Bạn không có quyền xem đơn hàng này.');
+    }
+  }
+
+  res.json({ status: 'success', data: order });
 });
 
 // ==========================================
@@ -930,8 +1117,8 @@ app.get('/api/orders/:id', async (req, res) => {
 // ==========================================
 
 // Lấy hồ sơ người dùng
-app.get('/api/user/profile', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1; // Fallback user mẫu nếu chưa đăng nhập
+app.get('/api/user/profile', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
 
   const result = await pool.query(
     `SELECT id, username, email, phone, gender, birthday, avatar_url, created_at
@@ -954,8 +1141,8 @@ app.get('/api/user/profile', async (req, res) => {
 });
 
 // Cập nhật hồ sơ người dùng (PUT /api/user/profile)
-app.put('/api/user/profile', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.put('/api/user/profile', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
   const { email, phone, gender, birthday, avatarUrl } = req.body || {};
 
   // Validate email
@@ -1017,8 +1204,8 @@ app.put('/api/user/profile', async (req, res) => {
 });
 
 // Upload avatar người dùng (POST /api/user/avatar)
-app.post('/api/user/avatar', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.post('/api/user/avatar', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
   const { imageBase64 } = req.body || {};
 
   if (!imageBase64 || typeof imageBase64 !== 'string') {
@@ -1052,8 +1239,8 @@ app.post('/api/user/avatar', async (req, res) => {
 });
 
 // Lấy danh sách địa chỉ nhận hàng
-app.get('/api/user/addresses', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.get('/api/user/addresses', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
 
   const result = await pool.query(
     `SELECT id, recipient_name, phone, detail_address, is_default, created_at
@@ -1071,8 +1258,8 @@ app.get('/api/user/addresses', async (req, res) => {
 });
 
 // Thêm địa chỉ nhận hàng mới
-app.post('/api/user/addresses', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.post('/api/user/addresses', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
   const { recipientName, phone, detailAddress, isDefault } = req.body || {};
 
   if (!recipientName || !phone || !detailAddress) {
@@ -1120,8 +1307,8 @@ app.post('/api/user/addresses', async (req, res) => {
 });
 
 // Sửa địa chỉ nhận hàng (PUT /api/user/addresses/:id)
-app.put('/api/user/addresses/:id', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.put('/api/user/addresses/:id', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
   const addressId = parseId(req.params.id, 'addressId');
   const { recipientName, phone, detailAddress, isDefault } = req.body || {};
 
@@ -1166,8 +1353,8 @@ app.put('/api/user/addresses/:id', async (req, res) => {
 
 // Xóa địa chỉ nhận hàng (DELETE /api/user/addresses/:id)
 // Quy tắc nghiệp vụ (PDF Page 4): Nếu chỉ có duy nhất 1 địa chỉ mặc định, không được xóa và báo "Cần ít nhất 1 địa chỉ nhận hàng"
-app.delete('/api/user/addresses/:id', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.delete('/api/user/addresses/:id', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
   const addressId = parseId(req.params.id, 'addressId');
 
   const client = await pool.connect();
@@ -1220,8 +1407,8 @@ app.delete('/api/user/addresses/:id', async (req, res) => {
 });
 
 // Đặt làm địa chỉ mặc định (PATCH /api/user/addresses/:id/default)
-app.patch('/api/user/addresses/:id/default', async (req, res) => {
-  const userId = req.user ? req.user.userId : 1;
+app.patch('/api/user/addresses/:id/default', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
   const addressId = parseId(req.params.id, 'addressId');
 
   const client = await pool.connect();
@@ -1257,7 +1444,228 @@ app.patch('/api/user/addresses/:id/default', async (req, res) => {
 });
 
 // ==========================================
-// 7. TÀI LIỆU API (SWAGGER UI) - qua Nginx: http://localhost/api/docs/
+// 7a. KÊNH NGƯỜI BÁN: ĐƠN HÀNG CÓ SẢN PHẨM CỦA SHOP
+// ==========================================
+app.get('/api/seller/orders', requireRole('seller', 'admin'), async (req, res) => {
+  const [items, summary] = await Promise.all([
+    pool.query(
+      `SELECT o.id AS order_id, o.order_code, o.status, o.created_at, o.payment_method,
+              o.recipient_name, o.recipient_phone, o.shipping_address, u.username AS buyer_username,
+              oi.product_id, oi.product_name, oi.product_image, oi.quantity, oi.unit_price, oi.subtotal
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       JOIN orders o ON o.id = oi.order_id
+       LEFT JOIN users u ON u.id = o.user_id
+       WHERE p.seller_id = $1
+       ORDER BY o.created_at DESC, o.id DESC
+       LIMIT 200`,
+      [req.user.userId]
+    ),
+    // Thống kê bỏ qua đơn đã hủy
+    pool.query(
+      `SELECT COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(oi.quantity), 0) AS items_sold,
+              COALESCE(SUM(oi.subtotal), 0) AS revenue
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       JOIN orders o ON o.id = oi.order_id
+       WHERE p.seller_id = $1 AND o.status <> 'CANCELLED'`,
+      [req.user.userId]
+    ),
+  ]);
+
+  const { orders, items_sold: itemsSold, revenue } = summary.rows[0];
+  res.json({ status: 'success', total: items.rowCount, summary: { orders, itemsSold, revenue }, data: items.rows });
+});
+
+// ==========================================
+// 7b. QUẢN TRỊ HỆ THỐNG - chỉ admin
+// ==========================================
+// Đơn cũ từ KT1 chưa có final_total (mặc định 0) thì lấy total_price
+const ORDER_TOTAL_SQL = 'CASE WHEN o.final_total > 0 THEN o.final_total ELSE o.total_price END';
+
+app.get('/api/admin/stats', requireRole('admin'), async (req, res) => {
+  const [users, products, orders] = await Promise.all([
+    pool.query('SELECT role, COUNT(*) AS count FROM users GROUP BY role'),
+    pool.query('SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE stock = 0) AS out_of_stock FROM products'),
+    pool.query(`SELECT o.status, COUNT(*) AS count, COALESCE(SUM(${ORDER_TOTAL_SQL}), 0) AS amount FROM orders o GROUP BY o.status`),
+  ]);
+
+  const byRole = Object.fromEntries(ROLES.map((role) => [role, 0]));
+  users.rows.forEach((row) => (byRole[row.role] = row.count));
+  const byStatus = Object.fromEntries(ORDER_STATUSES.map((status) => [status, 0]));
+  let revenue = 0;
+  orders.rows.forEach((row) => {
+    byStatus[row.status] = row.count;
+    if (row.status !== 'CANCELLED') revenue += row.amount;
+  });
+
+  res.json({
+    status: 'success',
+    data: {
+      users: { total: users.rows.reduce((sum, row) => sum + row.count, 0), ...byRole },
+      products: { total: products.rows[0].total, outOfStock: products.rows[0].out_of_stock },
+      orders: { total: orders.rows.reduce((sum, row) => sum + row.count, 0), byStatus },
+      revenue,
+    },
+  });
+});
+
+// Danh sách người dùng (lọc theo quyền, tìm theo tên/email/SĐT)
+app.get('/api/admin/users', requireRole('admin'), async (req, res) => {
+  const params = [];
+  const where = [];
+  if (req.query.role) {
+    if (!ROLES.includes(req.query.role)) {
+      throw new HttpError(400, 'role phải là admin, seller hoặc user.');
+    }
+    params.push(req.query.role);
+    where.push(`u.role = $${params.length}`);
+  }
+  if (req.query.q) {
+    params.push(`%${String(req.query.q).trim()}%`);
+    where.push(`(u.username ILIKE $${params.length} OR u.email ILIKE $${params.length} OR u.phone ILIKE $${params.length})`);
+  }
+
+  // Không trả avatar_url: ảnh tải lên lưu dạng base64 rất nặng
+  const result = await pool.query(
+    `SELECT u.id, u.username, u.email, u.phone, u.role, u.created_at,
+            (u.google_sub IS NOT NULL) AS google_linked,
+            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id) AS order_count,
+            (SELECT COUNT(*) FROM products p WHERE p.seller_id = u.id) AS product_count
+     FROM users u
+     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY u.id
+     LIMIT 500`,
+    params
+  );
+  res.json({ status: 'success', total: result.rowCount, data: result.rows });
+});
+
+// Phân quyền người dùng
+app.patch('/api/admin/users/:id/role', requireRole('admin'), async (req, res) => {
+  const id = parseId(req.params.id, 'id');
+  const { role } = req.body || {};
+  if (!ROLES.includes(role)) {
+    throw new HttpError(400, 'Quyền không hợp lệ, chỉ nhận admin, seller hoặc user.');
+  }
+  // Tránh tự khóa mình khỏi trang quản trị
+  if (id === req.user.userId) {
+    throw new HttpError(400, 'Không thể tự thay đổi quyền của chính mình.');
+  }
+
+  const result = await pool.query(
+    'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, username, role',
+    [role, id]
+  );
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy người dùng.');
+  }
+  res.json({ status: 'success', message: `Đã cập nhật quyền cho ${result.rows[0].username}.`, data: result.rows[0] });
+});
+
+// Toàn bộ đơn hàng, có phân trang và lọc theo trạng thái
+app.get('/api/admin/orders', requireRole('admin'), async (req, res) => {
+  const page = req.query.page === undefined ? 1 : parseInteger(req.query.page, 'page', 1, MAX_PAGE);
+  const limit = req.query.limit === undefined ? 20 : parseInteger(req.query.limit, 'limit', 1, 100);
+  const params = [];
+  let where = '';
+  if (req.query.status) {
+    const status = String(req.query.status).toUpperCase();
+    if (!ORDER_STATUSES.includes(status)) {
+      throw new HttpError(400, `status phải là một trong: ${ORDER_STATUSES.join(', ')}.`);
+    }
+    params.push(status);
+    where = 'WHERE o.status = $1';
+  }
+
+  const [count, rows] = await Promise.all([
+    pool.query(`SELECT COUNT(*) AS total FROM orders o ${where}`, params),
+    pool.query(
+      `SELECT o.id, o.order_code, o.status, o.created_at, o.payment_method, o.quantity,
+              o.total_price, o.shipping_fee, ${ORDER_TOTAL_SQL} AS final_total,
+              o.recipient_name, o.recipient_phone, o.shipping_address, o.buyer_note,
+              u.username AS buyer_username, p.name AS product_name, p.image_url AS product_image,
+              COALESCE(json_agg(
+                json_build_object(
+                  'productId', oi.product_id,
+                  'name', oi.product_name,
+                  'image', oi.product_image,
+                  'quantity', oi.quantity,
+                  'unitPrice', oi.unit_price,
+                  'subtotal', oi.subtotal
+                )
+              ) FILTER (WHERE oi.id IS NOT NULL), '[]') AS items
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.user_id
+       LEFT JOIN products p ON p.id = o.product_id
+       LEFT JOIN order_items oi ON oi.order_id = o.id
+       ${where}
+       GROUP BY o.id, u.username, p.name, p.image_url
+       ORDER BY o.id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, (page - 1) * limit]
+    ),
+  ]);
+
+  const totalItems = count.rows[0].total;
+  res.json({
+    status: 'success',
+    total: rows.rowCount,
+    data: rows.rows,
+    pagination: { page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) || 1 },
+  });
+});
+
+// Cập nhật trạng thái đơn hàng; hủy đơn thì hoàn lại tồn kho và lượt bán
+app.patch('/api/admin/orders/:id/status', requireRole('admin'), async (req, res) => {
+  const id = parseId(req.params.id, 'id');
+  const status = String(req.body?.status ?? '').toUpperCase();
+  if (!ORDER_STATUSES.includes(status)) {
+    throw new HttpError(400, `Trạng thái phải là một trong: ${ORDER_STATUSES.join(', ')}.`);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query('SELECT status, product_id, quantity FROM orders WHERE id = $1 FOR UPDATE', [id]);
+    if (found.rowCount === 0) {
+      throw new HttpError(404, 'Không tìm thấy đơn hàng.');
+    }
+    const current = found.rows[0];
+    if (current.status === 'CANCELLED' && status !== 'CANCELLED') {
+      throw new HttpError(409, 'Đơn hàng đã hủy, không thể chuyển sang trạng thái khác.');
+    }
+
+    if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
+      const items = await client.query(
+        'SELECT product_id, quantity FROM order_items WHERE order_id = $1 ORDER BY product_id',
+        [id]
+      );
+      // Đơn cũ từ KT1 không có order_items: hoàn theo product_id/quantity của đơn
+      const restock = items.rowCount ? items.rows : [{ product_id: current.product_id, quantity: current.quantity }];
+      for (const item of restock) {
+        if (!item.product_id) continue;
+        await client.query(
+          'UPDATE products SET stock = stock + $1, sold_count = GREATEST(sold_count - $1, 0) WHERE id = $2',
+          [item.quantity, item.product_id]
+        );
+      }
+    }
+
+    await client.query('UPDATE orders SET status = $1 WHERE id = $2', [status, id]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  res.json({ status: 'success', message: 'Đã cập nhật trạng thái đơn hàng.', data: { id, status } });
+});
+
+// ==========================================
+// 8. TÀI LIỆU API (SWAGGER UI) - qua Nginx: http://localhost/api/docs/
 // ==========================================
 app.get('/api/docs/openapi.json', (req, res) => {
   res.json(openapiSpec);
@@ -1384,6 +1792,10 @@ async function autoMigrateDatabase() {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_id INT;
       CREATE INDEX IF NOT EXISTS idx_products_seller_id ON products(seller_id);
 
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'seller', 'user'));
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(255) UNIQUE;
+      ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_code VARCHAR(50);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(12, 2) DEFAULT 0;
@@ -1499,6 +1911,17 @@ async function autoMigrateDatabase() {
         [images[0], JSON.stringify(images), id]
       );
     }
+
+    // 5. Tài khoản mẫu người bán & quản trị (mật khẩu Password123) cho CSDL tạo trước khi có phân quyền
+    await pool.query(`
+      INSERT INTO users (username, email, phone, password_hash, role, gender) VALUES
+      ('auramall_seller', 'seller@auramall.vn', '0912345678', 'auramall_salt_seller:305af70b667dbdd263ecc65df505e3902410d1d4ce5aac12a655852709815cabe2a32746ddeeb67e3eaf8c635cb5bf69298e0146e7c77f96a3fa758ceb7c7483', 'seller', 'nu'),
+      ('auramall_admin', 'admin@auramall.vn', '0987654321', 'auramall_salt_admin:46cf8fb666a4fe54dca9ca8eeb2bbef1690ab8eca207613665a5a068541488f2862e90e1949ea413495a37a6c5b5827040f630902a41a35d61f1e6ef5f95f1b1', 'admin', 'khac')
+      ON CONFLICT DO NOTHING;
+
+      UPDATE products SET seller_id = (SELECT id FROM users WHERE username = 'auramall_seller')
+      WHERE id IN (21, 22, 23, 24) AND seller_id IS NULL;
+    `);
     console.log('Đồng bộ và nạp dữ liệu mẫu AuraMall thành công!');
   } catch (err) {
     console.warn('Lưu ý autoMigrateDatabase:', err.message);

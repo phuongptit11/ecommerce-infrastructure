@@ -41,6 +41,9 @@ const ORDER_STATUS = {
   CANCELLED: 'Đã hủy',
 };
 const PAYMENT_LABEL = { COD: 'Thanh toán khi nhận hàng', BANK_TRANSFER: 'Chuyển khoản ngân hàng' };
+// Phân quyền: guest (chưa đăng nhập), user (người mua), seller (người bán), admin (quản trị)
+const ROLE_LABEL = { admin: 'Quản trị viên', seller: 'Người bán', user: 'Người mua' };
+const SELLER_ROLES = ['seller', 'admin'];
 
 const state = {
   token: storageGet(localStorage, STORAGE.token),
@@ -314,6 +317,18 @@ function logout() {
   if (currentRouteNeedsAuth()) redirect('/');
 }
 
+// 'pending': có token nhưng chưa tải xong hồ sơ, ẩn mọi liên kết theo quyền cho tới khi biết vai trò
+function currentRole() {
+  if (!state.token) return 'guest';
+  return state.user?.role || 'pending';
+}
+
+const can = (...roles) => roles.includes(currentRole());
+
+function roleBadge(role) {
+  return ROLE_LABEL[role] ? `<span class="role-badge role-badge--${role}">${ROLE_LABEL[role]}</span>` : '';
+}
+
 function renderAccountMenu() {
   const menu = $('#accountMenu');
   const trigger = $('#accountTrigger');
@@ -322,11 +337,14 @@ function renderAccountMenu() {
   if (logged) {
     trigger.href = '#/account/profile';
     trigger.innerHTML = `<img class="avatar-mini" src="${esc(avatarSrc(state.user))}" alt=""><span class="account-name">${esc(state.user.username)}</span>`;
-    $('#accountDropdownHead').innerHTML = `<strong>${esc(state.user.username)}</strong><span>${esc(state.user.email || '')}</span>`;
+    $('#accountDropdownHead').innerHTML = `<strong>${esc(state.user.username)}</strong><span>${esc(state.user.email || '')}</span>${roleBadge(state.user.role)}`;
   } else {
     trigger.href = '#/login';
     trigger.innerHTML = `${icon('user')}<span class="account-name">Đăng nhập</span>`;
   }
+  // Liên kết theo quyền trong header, menu di động, footer: data-roles="seller admin"
+  const role = currentRole();
+  $$('[data-roles]').forEach((el) => (el.hidden = !el.dataset.roles.split(' ').includes(role)));
 }
 
 // ==========================================
@@ -518,16 +536,19 @@ function scrollToEl(el, offset = 24) {
 // ==========================================
 // 7. ĐỊNH TUYẾN (HASH ROUTER)
 // ==========================================
+// auth: phải đăng nhập; roles: chỉ các vai trò được liệt kê
 const ROUTES = [
   { re: /^\/$/, view: 'home' },
   { re: /^\/products$/, view: 'catalog' },
-  { re: /^\/product\/(\d+)$/, view: 'product' },
+  { re: /^\/product\/(\d+)$/, view: 'product', auth: true },
   { re: /^\/cart$/, view: 'cart' },
   { re: /^\/checkout$/, view: 'checkout', auth: true },
   { re: /^\/login$/, view: 'login', group: 'auth' },
   { re: /^\/register$/, view: 'register', group: 'auth' },
-  { re: /^\/account(?:\/(profile|addresses|orders|products))?$/, view: 'account', auth: true },
-  { re: /^\/sell(?:\/(\d+))?$/, view: 'sell', auth: true },
+  { re: /^\/account(?:\/(profile|password|addresses|orders))?$/, view: 'account', auth: true },
+  { re: /^\/account\/(products|sales)$/, view: 'account', auth: true, roles: SELLER_ROLES },
+  { re: /^\/sell(?:\/(\d+))?$/, view: 'sell', auth: true, roles: SELLER_ROLES },
+  { re: /^\/admin(?:\/(overview|users|products|orders))?$/, view: 'admin', auth: true, roles: ['admin'] },
 ];
 
 function parseHash() {
@@ -561,12 +582,17 @@ function redirect(path) {
 
 async function router() {
   const { path, query, full } = parseHash();
-  const route = matchRoute(path);
+  let route = matchRoute(path);
 
+  if (route.roles && state.token && !state.user) await loadMe();
   if (route.auth && !state.token) {
-    toast('Vui lòng đăng nhập để tiếp tục.', 'error');
+    toast(route.view === 'product' ? 'Vui lòng đăng nhập để xem chi tiết sản phẩm.' : 'Vui lòng đăng nhập để tiếp tục.', 'error');
     redirect(`/login?redirect=${encodeURIComponent(full)}`);
     return;
+  }
+  // Đã đăng nhập nhưng không đủ quyền: hiện trang thông báo thay cho trang được yêu cầu
+  if (route.roles && !route.roles.includes(currentRole())) {
+    route = { view: 'forbidden', group: 'forbidden', params: route.roles };
   }
 
   const token = ++state.routeToken;
@@ -620,6 +646,7 @@ function updateNavActive() {
     flash: onCatalog && query.get('flashSale') === '1',
     newest: onCatalog && query.get('sort') === 'newest',
     sell: path.startsWith('/sell'),
+    admin: path.startsWith('/admin'),
   };
   $$('.nav-link[data-nav]').forEach((link) => link.classList.toggle('is-active', Boolean(active[link.dataset.nav])));
 }
@@ -863,6 +890,19 @@ function renderNotFound(message = 'Trang bạn tìm không tồn tại hoặc đ
   $('#view').innerHTML = `<section class="container">${emptyState(
     'search',
     'Không tìm thấy',
+    message,
+    '<a class="btn btn--solid" href="#/">Về trang chủ</a>'
+  )}</section>`;
+}
+
+function renderForbidden(roles) {
+  const sellerPage = roles.includes('seller');
+  const message = sellerPage
+    ? `Trang này dành cho tài khoản người bán. Tài khoản của bạn đang là ${ROLE_LABEL[currentRole()] || 'khách'}, hãy liên hệ quản trị viên để được nâng cấp quyền người bán.`
+    : 'Trang này chỉ dành cho quản trị viên hệ thống.';
+  $('#view').innerHTML = `<section class="container">${emptyState(
+    'lock',
+    'Không có quyền truy cập',
     message,
     '<a class="btn btn--solid" href="#/">Về trang chủ</a>'
   )}</section>`;
@@ -1271,16 +1311,23 @@ function editorialHtml() {
     </section>`;
 }
 
+// Người bán/admin: vào kênh người bán; khách: mời đăng ký tài khoản người bán; người mua: ẩn (cần admin nâng quyền)
 function ctaHtml() {
+  if (currentRole() === 'user') return '';
+  const seller = can(...SELLER_ROLES);
   return `
     <section class="cta-band">
       <div class="container cta-inner reveal">
         <div>
           <p class="eyebrow">Kênh người bán</p>
           <h2>Bán hàng cùng AuraMall</h2>
-          <p>Đăng bán sản phẩm chỉ trong vài bước: thêm ảnh, đặt giá, quản lý tồn kho và theo dõi lượt bán.</p>
+          <p>Đăng bán sản phẩm chỉ trong vài bước: thêm ảnh, đặt giá, quản lý tồn kho và theo dõi đơn hàng của shop.</p>
         </div>
-        <a class="btn btn--light" href="#/sell">Đăng bán sản phẩm ${icon('arrow', 'icon-sm')}</a>
+        ${
+          seller
+            ? `<a class="btn btn--light" href="#/sell">Đăng bán sản phẩm ${icon('arrow', 'icon-sm')}</a>`
+            : `<a class="btn btn--light" href="#/register?type=seller">Đăng ký người bán ${icon('arrow', 'icon-sm')}</a>`
+        }
       </div>
     </section>`;
 }
@@ -1302,7 +1349,8 @@ function readFilters(query) {
   };
 }
 
-function catalogUrl(changes) {
+// Đổi tham số lọc/phân trang trên trang hiện tại (danh sách sản phẩm, các bảng quản trị)
+function routeUrl(changes) {
   const query = new URLSearchParams(state.route.query);
   for (const [key, value] of Object.entries(changes)) {
     if (value === '' || value === null || value === undefined) query.delete(key);
@@ -1310,7 +1358,7 @@ function catalogUrl(changes) {
   }
   if (!('page' in changes)) query.delete('page'); // đổi bộ lọc thì về trang 1
   const qs = query.toString();
-  return `/products${qs ? `?${qs}` : ''}`;
+  return `${state.route.path}${qs ? `?${qs}` : ''}`;
 }
 
 async function viewCatalog({ query, token }) {
@@ -1394,10 +1442,13 @@ async function viewCatalog({ query, token }) {
       <div id="results">
         <div class="toolbar">
           <div class="tabs tabs--plain" role="tablist" aria-label="Sắp xếp">
-            ${SORTS.map(
-              ([key, label]) =>
-                `<button class="tab ${f.sort === key ? 'is-active' : ''}" data-action="set-filter" data-key="sort" data-value="${key}" role="tab">${label}</button>`
-            ).join('')}
+            ${SORTS.slice(0, 3)
+              .map(
+                ([key, label]) =>
+                  `<button class="tab ${f.sort === key ? 'is-active' : ''}" data-action="set-filter" data-key="sort" data-value="${key}" role="tab">${label}</button>`
+              )
+              .join('')}
+            ${priceSortTab(f.sort)}
           </div>
           <button class="btn btn--sm filter-toggle" data-action="filters-open">Bộ lọc</button>
         </div>
@@ -1415,6 +1466,16 @@ async function viewCatalog({ query, token }) {
         ${paginationHtml(pagination)}
       </div>
     </div>`;
+}
+
+// Một tab "Giá" thay cho hai tab tăng/giảm: bấm lần đầu sắp tăng dần, bấm tiếp để đảo chiều
+function priceSortTab(sort) {
+  const asc = sort === 'price_asc';
+  const desc = sort === 'price_desc';
+  const next = asc ? 'price_desc' : 'price_asc';
+  const label = asc ? 'Giá: thấp đến cao' : desc ? 'Giá: cao đến thấp' : 'Sắp xếp theo giá';
+  return `<button class="tab tab--price ${asc || desc ? 'is-active' : ''}" data-action="set-filter" data-key="sort" data-value="${next}"
+    role="tab" title="${label}" aria-label="${label}">Giá ${icon(asc ? 'up' : desc ? 'down' : 'sort', 'icon-xs')}</button>`;
 }
 
 function activeFilterChips(f, cat) {
@@ -1480,7 +1541,8 @@ async function viewProduct({ params: [id], token }) {
   const images = thumbs.length ? thumbs : [p.image_url];
   const out = p.stock <= 0;
   const limit = maxQty(p.stock);
-  const isOwner = state.user && p.seller_id === state.user.id;
+  const isOwner = can(...SELLER_ROLES) && p.seller_id === state.user.id;
+  const canEdit = isOwner || can('admin');
   state.pd = { product: p, images, index: 0, qty: 1 };
 
   $('#view').innerHTML = `
@@ -1552,7 +1614,11 @@ async function viewProduct({ params: [id], token }) {
               <button class="btn" data-action="pd-add" ${out ? 'disabled' : ''}>${icon('bag', 'icon-sm')} Thêm vào giỏ</button>
               <button class="btn btn--solid" data-action="pd-buy" ${out ? 'disabled' : ''}>Mua ngay</button>
             </div>
-            ${isOwner ? `<p style="margin-top: 20px"><a class="link-arrow" href="#/sell/${p.id}">Chỉnh sửa sản phẩm của bạn ${icon('arrow')}</a></p>` : ''}
+            ${
+              canEdit
+                ? `<p style="margin-top: 20px"><a class="link-arrow" href="#/sell/${p.id}">${isOwner ? 'Chỉnh sửa sản phẩm của bạn' : 'Chỉnh sửa (quản trị)'} ${icon('arrow')}</a></p>`
+                : ''
+            }
             <div class="pd-perks">
               <div class="perk">${icon('truck')}<span>Miễn phí vận chuyển cho đơn từ ${money(FREE_SHIP_FROM)}, phí thường ${money(SHIPPING_FEE)}.</span></div>
               <div class="perk">${icon('shield')}<span>Cam kết chính hãng, thanh toán an toàn.</span></div>
@@ -1962,7 +2028,7 @@ function afterAuthPath() {
   return target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/login') ? target : '/';
 }
 
-function renderAuth(mode, { query }) {
+function renderAuth(mode, { query, token }) {
   if (state.token) {
     redirect(afterAuthPath());
     return;
@@ -1976,11 +2042,11 @@ function renderAuth(mode, { query }) {
         <div>
           <p class="eyebrow">Đặc quyền thành viên</p>
           <h2>${login ? 'Chào mừng trở lại' : 'Gia nhập AuraMall'}</h2>
-          <p>Đăng nhập để lưu giỏ hàng, theo dõi đơn mua, đăng bán sản phẩm và nhận ưu đãi Flash Sale mỗi ngày.</p>
+          <p>Đăng nhập để xem chi tiết sản phẩm, lưu giỏ hàng, theo dõi đơn mua và nhận ưu đãi Flash Sale mỗi ngày.</p>
           <ul class="auth-perks">
             <li>${icon('bolt')}Flash Sale giảm đến 50% mỗi ngày</li>
             <li>${icon('truck')}Miễn phí vận chuyển cho đơn từ ${money(FREE_SHIP_FROM)}</li>
-            <li>${icon('shield')}Cam kết chính hãng, đổi trả trong 30 ngày</li>
+            <li>${icon('store')}Tài khoản người bán: tự đăng và quản lý sản phẩm</li>
           </ul>
         </div>
       </div>
@@ -1990,16 +2056,50 @@ function renderAuth(mode, { query }) {
             <a class="tab ${login ? 'is-active' : ''}" href="#/login${keep}">Đăng nhập</a>
             <a class="tab ${login ? '' : 'is-active'}" href="#/register${keep}">Đăng ký</a>
           </div>
-          ${login ? loginFormHtml(keep) : registerFormHtml(keep)}
+          ${login ? loginFormHtml(keep) : registerFormHtml(keep, query.get('type') === 'seller')}
         </div>
       </div>
     </section>`;
+  setupGoogleButton(mode, token);
 }
 
-function passwordInput(id, name, autocomplete) {
+function passwordInput(id, name, autocomplete, role = '') {
   return `<div class="pw-wrap">
-    <input class="input" id="${id}" name="${name}" type="password" autocomplete="${autocomplete}" required>
+    <input class="input" id="${id}" name="${name}" type="password" autocomplete="${autocomplete}" ${role ? `data-pw="${role}"` : ''} required>
     <button type="button" class="pw-toggle" data-action="pw-toggle" aria-label="Hiện mật khẩu">Hiện</button>
+  </div>`;
+}
+
+// Ô mật khẩu mới + danh sách điều kiện + ô nhập lại, dùng cho đăng ký và đổi mật khẩu
+function newPasswordFields(label = 'Mật khẩu', { id = 'newPw', name = 'password' } = {}) {
+  return `
+    <div class="field">
+      <label for="${id}">${label}</label>
+      ${passwordInput(id, name, 'new-password', 'new')}
+      <ul class="checklist" id="pwChecklist">
+        <li data-rule="len">Tối thiểu 8 ký tự</li>
+        <li data-rule="upper">Có chữ in hoa</li>
+        <li data-rule="lower">Có chữ thường</li>
+        <li data-rule="digit">Có chữ số</li>
+      </ul>
+    </div>
+    <div class="field">
+      <label for="${id}2">Nhập lại mật khẩu</label>
+      ${passwordInput(`${id}2`, 'confirmPassword', 'new-password', 'confirm')}
+      <span class="hint" id="pwMatch"></span>
+    </div>`;
+}
+
+const GOOGLE_LOGO = `<svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true">
+  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+</svg>`;
+
+function googleSlot(text) {
+  return `<div class="google-slot" id="googleBtn">
+    <button type="button" class="btn btn--block btn-google" data-action="google-unavailable">${GOOGLE_LOGO}${text}</button>
   </div>`;
 }
 
@@ -2020,18 +2120,23 @@ function loginFormHtml(keep) {
       </div>
       <button class="btn btn--solid btn--block" type="submit">Đăng nhập</button>
       <div class="divider-text">Hoặc</div>
-      <div class="social">
-        <button type="button" class="btn btn--sm" data-action="social-login" data-provider="Google">Google</button>
-        <button type="button" class="btn btn--sm" data-action="social-login" data-provider="Facebook">Facebook</button>
-      </div>
+      ${googleSlot('Đăng nhập với Google')}
       <p class="auth-switch">Chưa có tài khoản? <a href="#/register${keep}" class="link-lux">Đăng ký ngay</a></p>
-      <div class="demo-hint">Tài khoản mẫu: <code>auramall_user</code> / <code>Password123</code></div>
     </form>`;
 }
 
-function registerFormHtml(keep) {
+function registerFormHtml(keep, seller) {
   return `
     <form data-form="register" novalidate>
+      <div class="field">
+        <span class="label">Loại tài khoản</span>
+        <div class="account-type">
+          <label class="type-opt"><input type="radio" name="role" value="user" ${seller ? '' : 'checked'}>
+            <span>${icon('bag')}<strong>Người mua</strong><small>Mua sắm, theo dõi đơn hàng</small></span></label>
+          <label class="type-opt"><input type="radio" name="role" value="seller" ${seller ? 'checked' : ''}>
+            <span>${icon('store')}<strong>Người bán</strong><small>Đăng bán, quản lý sản phẩm và đơn của shop</small></span></label>
+        </div>
+      </div>
       <div class="field">
         <label for="regUsername">Tên đăng nhập</label>
         <input class="input" id="regUsername" name="username" autocomplete="username" placeholder="3 - 30 ký tự: chữ, số, dấu gạch dưới" required>
@@ -2044,25 +2149,13 @@ function registerFormHtml(keep) {
         <label for="regPhone">Số điện thoại</label>
         <input class="input" id="regPhone" name="phone" type="tel" autocomplete="tel" placeholder="10 - 11 chữ số, vd: 0969795794" required>
       </div>
-      <div class="field">
-        <label for="regPw">Mật khẩu</label>
-        ${passwordInput('regPw', 'password', 'new-password')}
-        <ul class="checklist" id="pwChecklist">
-          <li data-rule="len">Tối thiểu 8 ký tự</li>
-          <li data-rule="upper">Có chữ in hoa</li>
-          <li data-rule="lower">Có chữ thường</li>
-          <li data-rule="digit">Có chữ số</li>
-        </ul>
-      </div>
-      <div class="field">
-        <label for="regPw2">Nhập lại mật khẩu</label>
-        ${passwordInput('regPw2', 'confirmPassword', 'new-password')}
-        <span class="hint" id="pwMatch"></span>
-      </div>
+      ${newPasswordFields('Mật khẩu', { id: 'regPw' })}
       <div class="form-row">
         <label class="check"><input type="checkbox" class="cbx" name="agree" checked> Tôi đồng ý với Điều khoản dịch vụ và Chính sách bảo mật</label>
       </div>
       <button class="btn btn--solid btn--block" type="submit">Đăng ký</button>
+      <div class="divider-text">Hoặc</div>
+      ${googleSlot('Đăng ký với Google')}
       <p class="auth-switch">Đã có tài khoản? <a href="#/login${keep}" class="link-lux">Đăng nhập</a></p>
     </form>`;
 }
@@ -2076,8 +2169,8 @@ const PASSWORD_RULES = {
 const PHONE_RE = /^(0|\+84)[0-9]{9,10}$/;
 
 function updatePasswordHints() {
-  const pw = $('#regPw')?.value ?? '';
-  const pw2 = $('#regPw2')?.value ?? '';
+  const pw = $('[data-pw="new"]')?.value ?? '';
+  const pw2 = $('[data-pw="confirm"]')?.value ?? '';
   $$('#pwChecklist li').forEach((li) => li.classList.toggle('is-ok', PASSWORD_RULES[li.dataset.rule](pw)));
   const match = $('#pwMatch');
   if (!match) return;
@@ -2093,6 +2186,15 @@ function updatePasswordHints() {
   }
 }
 
+// Sau khi đăng nhập: về trang đang xem dở; người bán mới đăng ký thì vào kênh người bán
+function finishAuth(res, message) {
+  setSession(res.token, res.user);
+  loadMe();
+  toast(message);
+  const fallback = res.user.role === 'seller' && !state.route.query.get('redirect') ? '/sell' : '/';
+  redirect(state.route.query.get('redirect') ? afterAuthPath() : fallback);
+}
+
 async function submitLogin(form, button) {
   const login = form.login.value.trim();
   const password = form.password.value;
@@ -2103,10 +2205,7 @@ async function submitLogin(form, button) {
   setBusy(button, true, 'Đang đăng nhập...');
   try {
     const res = await api('/api/auth/login', { method: 'POST', body: { login, password, remember: form.remember.checked } });
-    setSession(res.token, res.user);
-    loadMe();
-    toast(`Xin chào, ${res.user.username}!`);
-    redirect(afterAuthPath());
+    finishAuth(res, `Xin chào, ${res.user.username}!`);
   } catch (err) {
     toast(err.message, 'error');
     setBusy(button, false);
@@ -2120,6 +2219,7 @@ async function submitRegister(form, button) {
     phone: form.phone.value.trim(),
     password: form.password.value,
     confirmPassword: form.confirmPassword.value,
+    role: form.role.value || 'user',
   };
   let error = '';
   if (!data.username || !data.email || !data.phone || !data.password) error = 'Vui lòng điền đầy đủ tất cả các trường thông tin.';
@@ -2138,52 +2238,129 @@ async function submitRegister(form, button) {
   setBusy(button, true, 'Đang tạo tài khoản...');
   try {
     const res = await api('/api/auth/register', { method: 'POST', body: data });
-    setSession(res.token, res.user);
-    loadMe();
-    toast('Đăng ký tài khoản thành công!');
-    redirect(afterAuthPath());
+    finishAuth(res, data.role === 'seller' ? 'Đăng ký tài khoản người bán thành công!' : 'Đăng ký tài khoản thành công!');
   } catch (err) {
     toast(err.message, 'error');
     setBusy(button, false);
   }
 }
 
+// ---------- Đăng nhập Google (Google Identity Services) ----------
+let authConfig = null;
+let gisLoader = null;
+
+async function loadAuthConfig() {
+  if (!authConfig) {
+    try {
+      authConfig = (await api('/api/auth/config')).data;
+    } catch {
+      return { googleClientId: null }; // lỗi mạng: thử lại ở lần mở trang sau
+    }
+  }
+  return authConfig;
+}
+
+function loadGoogleScript() {
+  gisLoader ??= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => resolve(window.google);
+    script.onerror = () => {
+      gisLoader = null;
+      reject(new Error('Không tải được thư viện đăng nhập Google, vui lòng kiểm tra kết nối mạng.'));
+    };
+    document.head.append(script);
+  });
+  return gisLoader;
+}
+
+// Thay nút tạm bằng nút "Sign in with Google" chính thức khi máy chủ đã cấu hình GOOGLE_CLIENT_ID
+async function setupGoogleButton(mode, token) {
+  const { googleClientId } = await loadAuthConfig();
+  if (stale(token) || !googleClientId || !$('#googleBtn')) return;
+  try {
+    const google = await loadGoogleScript();
+    const slot = $('#googleBtn');
+    if (stale(token) || !slot) return;
+    google.accounts.id.initialize({ client_id: googleClientId, callback: onGoogleCredential, ux_mode: 'popup' });
+    slot.innerHTML = '';
+    google.accounts.id.renderButton(slot, {
+      theme: 'outline',
+      size: 'large',
+      shape: 'rectangular',
+      text: mode === 'register' ? 'signup_with' : 'signin_with',
+      width: Math.min(slot.clientWidth || 400, 400),
+      locale: 'vi',
+    });
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// Google trả về ID token; backend kiểm tra chữ ký rồi đăng nhập hoặc tạo tài khoản
+async function onGoogleCredential(response) {
+  const role = $('form[data-form="register"] input[name="role"]:checked')?.value || 'user';
+  try {
+    const res = await api('/api/auth/google', { method: 'POST', body: { credential: response.credential, role } });
+    finishAuth(res, res.message);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 // ==========================================
-// 17. TRUNG TÂM TÀI KHOẢN: HỒ SƠ, ĐỊA CHỈ, ĐƠN MUA, SẢN PHẨM CỦA TÔI
+// 17. TRUNG TÂM TÀI KHOẢN: HỒ SƠ, MẬT KHẨU, ĐỊA CHỈ, ĐƠN MUA; NGƯỜI BÁN: SẢN PHẨM, ĐƠN CỦA SHOP
 // ==========================================
+// [đường dẫn, icon, nhãn, quyền được xem (bỏ trống = mọi tài khoản)]
 const ACCOUNT_NAV = [
   ['profile', 'user', 'Hồ sơ của tôi'],
+  ['password', 'lock', 'Đổi mật khẩu'],
   ['addresses', 'pin', 'Địa chỉ nhận hàng'],
   ['orders', 'box', 'Đơn mua'],
-  ['products', 'store', 'Sản phẩm của tôi'],
+  ['products', 'store', 'Sản phẩm của tôi', SELLER_ROLES],
+  ['sales', 'doc', 'Đơn hàng của shop', SELLER_ROLES],
 ];
 
+// Khung trang có thanh bên (dùng chung cho tài khoản và quản trị)
+function sidePage({ crumbs, title, nav, base, tab, extraLinks = '' }) {
+  const items = nav.filter(([, , , roles]) => !roles || can(...roles));
+  return `
+    ${pageHead(crumbs, title)}
+    <div class="container account">
+      <aside class="account-side">
+        <div class="account-user">
+          <img class="avatar" id="sideAvatar" src="${esc(avatarSrc(state.user))}" alt="">
+          <div><strong>${esc(state.user.username)}</strong>${roleBadge(state.user.role)}</div>
+        </div>
+        <nav class="account-nav">
+          ${items.map(([key, ic, text]) => `<a href="#/${base}/${key}" class="${key === tab ? 'is-active' : ''}">${icon(ic, 'icon-sm')}${text}</a>`).join('')}
+          ${extraLinks}
+          <button data-action="logout">${icon('logout', 'icon-sm')}Đăng xuất</button>
+        </nav>
+      </aside>
+      <section class="account-panel" id="accountPanel"></section>
+    </div>`;
+}
+
 async function viewAccount({ params: [tab = 'profile'], token }) {
-  await loadMe(); // lấy hồ sơ mới nhất (ngày tham gia, ảnh đại diện...)
+  await loadMe(); // lấy hồ sơ mới nhất (ngày tham gia, ảnh đại diện, quyền...)
   if (stale(token)) return;
   if (!state.user) {
     redirect(`/login?redirect=${encodeURIComponent(state.route.full)}`);
     return;
   }
   const label = ACCOUNT_NAV.find(([key]) => key === tab)?.[2] || 'Tài khoản';
-  $('#view').innerHTML = `
-    ${pageHead([['Trang chủ', '#/'], ['Tài khoản', '#/account/profile'], [label]], 'Tài khoản của tôi')}
-    <div class="container account">
-      <aside class="account-side">
-        <div class="account-user">
-          <img class="avatar" id="sideAvatar" src="${esc(avatarSrc(state.user))}" alt="">
-          <div><strong>${esc(state.user.username)}</strong><span>Thành viên từ ${formatDate(state.user.created_at) || '2026'}</span></div>
-        </div>
-        <nav class="account-nav">
-          ${ACCOUNT_NAV.map(
-            ([key, ic, text]) => `<a href="#/account/${key}" class="${key === tab ? 'is-active' : ''}">${icon(ic, 'icon-sm')}${text}</a>`
-          ).join('')}
-          <a href="#/sell">${icon('plus', 'icon-sm')}Đăng bán sản phẩm</a>
-          <button data-action="logout">${icon('logout', 'icon-sm')}Đăng xuất</button>
-        </nav>
-      </aside>
-      <section class="account-panel" id="accountPanel"></section>
-    </div>`;
+  $('#view').innerHTML = sidePage({
+    crumbs: [['Trang chủ', '#/'], ['Tài khoản', '#/account/profile'], [label]],
+    title: 'Tài khoản của tôi',
+    nav: ACCOUNT_NAV,
+    base: 'account',
+    tab,
+    extraLinks:
+      (can(...SELLER_ROLES) ? `<a href="#/sell">${icon('plus', 'icon-sm')}Đăng bán sản phẩm</a>` : '') +
+      (can('admin') ? `<a href="#/admin">${icon('chart', 'icon-sm')}Quản trị hệ thống</a>` : ''),
+  });
   await ACCOUNT_TABS[tab](token);
 }
 
@@ -2222,6 +2399,25 @@ const ACCOUNT_TABS = {
           <p class="hint">Dung lượng tối đa 2MB.<br>Định dạng: .PNG, .JPG, .JPEG</p>
         </div>
       </form>`;
+  },
+
+  async password() {
+    const u = state.user;
+    const hasPassword = u.has_password !== false;
+    $('#accountPanel').innerHTML = `
+      ${panelHead(
+        'Bảo mật',
+        hasPassword ? 'Đổi mật khẩu' : 'Đặt mật khẩu',
+        hasPassword
+          ? 'Để bảo mật tài khoản, không chia sẻ mật khẩu cho người khác.'
+          : 'Tài khoản tạo bằng Google chưa có mật khẩu. Đặt mật khẩu để đăng nhập bằng tên đăng nhập hoặc email.'
+      )}
+      <form data-form="password" class="narrow-form" novalidate>
+        ${hasPassword ? `<div class="field"><label for="curPw">Mật khẩu hiện tại</label>${passwordInput('curPw', 'currentPassword', 'current-password')}</div>` : ''}
+        ${newPasswordFields('Mật khẩu mới', { id: 'newPw', name: 'newPassword' })}
+        <button class="btn btn--solid" type="submit">${hasPassword ? 'Đổi mật khẩu' : 'Đặt mật khẩu'}</button>
+      </form>
+      ${u.google_linked ? `<p class="hint linked-note">${GOOGLE_LOGO} Tài khoản đã liên kết Google (${esc(u.email)}), có thể đăng nhập bằng Google.</p>` : ''}`;
   },
 
   async addresses(token) {
@@ -2274,7 +2470,77 @@ const ACCOUNT_TABS = {
           : emptyState('store', 'Bạn chưa đăng bán sản phẩm nào', 'Đăng sản phẩm đầu tiên để bắt đầu bán hàng cùng AuraMall.', '<a class="btn btn--solid" href="#/sell">Đăng bán sản phẩm</a>')
       }`;
   },
+
+  // Đơn hàng có sản phẩm do người bán này đăng
+  async sales(token) {
+    const panel = $('#accountPanel');
+    const head = panelHead('Kênh người bán', 'Đơn hàng của shop', 'Các đơn hàng có sản phẩm bạn đăng bán, thống kê không tính đơn đã hủy.');
+    panel.innerHTML = `${head}<div class="skeleton" style="height: 180px"></div>`;
+    const res = await api('/api/seller/orders');
+    if (stale(token)) return;
+    const { orders, itemsSold, revenue } = res.summary;
+    panel.innerHTML = `
+      ${head}
+      <div class="stat-grid">
+        ${statCard('Đơn hàng', orders)}${statCard('Sản phẩm đã bán', itemsSold)}${statCard('Doanh thu', money(revenue))}
+      </div>
+      ${
+        res.data.length
+          ? `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Sản phẩm</th><th>Đơn hàng</th><th>Giao đến</th><th>Số lượng</th><th>Thành tiền</th><th>Trạng thái</th></tr></thead>
+              <tbody>${res.data
+                .map(
+                  (row) => `
+                  <tr>
+                    <td><div class="cell-product"><img src="${esc(imgSrc(row.product_image))}" alt="" loading="lazy"><span>${esc(row.product_name)}</span></div></td>
+                    <td><strong>${esc(row.order_code || `#${row.order_id}`)}</strong><small>${formatDate(row.created_at, true)}</small></td>
+                    <td>${esc(row.recipient_name || 'Khách vãng lai')}<small>${esc(row.recipient_phone || '')} · ${esc(row.shipping_address || '')}</small></td>
+                    <td>${row.quantity} × ${money(row.unit_price)}</td>
+                    <td><strong>${money(row.subtotal)}</strong></td>
+                    <td>${statusTag(row.status)}</td>
+                  </tr>`
+                )
+                .join('')}</tbody>
+            </table></div>`
+          : emptyState('doc', 'Chưa có đơn hàng', 'Khi khách mua sản phẩm của bạn, đơn hàng sẽ xuất hiện tại đây.')
+      }`;
+  },
 };
+
+function statCard(label, value, note = '') {
+  return `<div class="stat"><span class="label">${esc(label)}</span><strong>${esc(String(value))}</strong>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
+}
+
+function statusTag(status) {
+  return `<span class="status status--${esc(String(status).toLowerCase())}">${esc(ORDER_STATUS[status] || status)}</span>`;
+}
+
+async function submitPassword(form, button) {
+  const body = {
+    currentPassword: form.currentPassword ? form.currentPassword.value : undefined,
+    newPassword: form.newPassword.value,
+    confirmPassword: form.confirmPassword.value,
+  };
+  let error = '';
+  if (form.currentPassword && !body.currentPassword) error = 'Vui lòng nhập mật khẩu hiện tại.';
+  else if (!Object.values(PASSWORD_RULES).every((rule) => rule(body.newPassword)))
+    error = 'Mật khẩu mới tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số.';
+  else if (body.newPassword !== body.confirmPassword) error = 'Mật khẩu nhập lại không khớp.';
+  if (error) {
+    toast(error, 'error');
+    return;
+  }
+  setBusy(button, true, 'Đang lưu...');
+  try {
+    const res = await api('/api/auth/password', { method: 'PUT', body });
+    state.user.has_password = true;
+    toast(res.message);
+    ACCOUNT_TABS.password();
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(button, false);
+  }
+}
 
 function orderHtml(o, i) {
   const items = Array.isArray(o.items) && o.items.length ? o.items : [{ name: o.product_name, image: o.product_image, quantity: o.quantity, unitPrice: o.total_price / (o.quantity || 1) }];
@@ -2469,7 +2735,7 @@ async function viewSell({ params: [id], token }) {
       renderNotFound('Không tìm thấy sản phẩm cần chỉnh sửa.');
       return;
     }
-    if (product.seller_id !== state.user?.id) {
+    if (product.seller_id !== state.user?.id && !can('admin')) {
       renderNotFound('Bạn chỉ có thể chỉnh sửa sản phẩm do chính mình đăng bán.');
       return;
     }
@@ -2622,8 +2888,254 @@ async function deleteProduct(id) {
     await api(`/api/products/${id}`, { method: 'DELETE' });
     invalidateCatalog();
     toast('Đã xóa sản phẩm.');
-    go('/account/products');
+    router(); // vẽ lại danh sách đang xem (sản phẩm của tôi hoặc trang quản trị)
   } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ==========================================
+// 18b. QUẢN TRỊ HỆ THỐNG (CHỈ ADMIN)
+// ==========================================
+const ADMIN_NAV = [
+  ['overview', 'chart', 'Tổng quan'],
+  ['users', 'user', 'Người dùng & phân quyền'],
+  ['products', 'store', 'Sản phẩm'],
+  ['orders', 'box', 'Đơn hàng'],
+];
+
+async function viewAdmin({ params: [tab = 'overview'], query, token }) {
+  const label = ADMIN_NAV.find(([key]) => key === tab)?.[2];
+  $('#view').innerHTML = sidePage({
+    crumbs: [['Trang chủ', '#/'], ['Quản trị', '#/admin'], [label]],
+    title: 'Quản trị hệ thống',
+    nav: ADMIN_NAV,
+    base: 'admin',
+    tab,
+    extraLinks: `<a href="#/account/profile">${icon('user', 'icon-sm')}Tài khoản của tôi</a>`,
+  });
+  await ADMIN_TABS[tab]({ query, token });
+}
+
+// Chip lọc nhanh, bấm để đổi tham số trên đường dẫn hiện tại
+function filterChips(key, current, options) {
+  return `<div class="chips">${options
+    .map(
+      ([value, text]) =>
+        `<button class="chip ${current === value ? 'is-active' : ''}" data-action="set-filter" data-key="${key}" data-value="${esc(value)}">${esc(text)}</button>`
+    )
+    .join('')}</div>`;
+}
+
+function adminOrderRows(orders) {
+  return orders
+    .map((o) => {
+      const items = o.items?.length ? o.items : [{ name: o.product_name, quantity: o.quantity }];
+      const more = items.length > 1 ? ` <small>+${items.length - 1} sản phẩm khác</small>` : '';
+      const locked = o.status === 'CANCELLED';
+      return `
+        <tr>
+          <td><strong>${esc(o.order_code || `#${o.id}`)}</strong><small>${formatDate(o.created_at, true)}</small></td>
+          <td>${o.buyer_username ? esc(o.buyer_username) : '<span class="muted">Khách vãng lai</span>'}<small>${esc(o.recipient_name || '')} · ${esc(o.recipient_phone || '')}</small></td>
+          <td>${esc(items[0].name || '')} × ${items[0].quantity}${more}</td>
+          <td><strong>${money(o.final_total)}</strong><small>${esc(PAYMENT_LABEL[o.payment_method] || o.payment_method || '')}</small></td>
+          <td>
+            <select class="input input--sm status-select" data-change="admin-order-status" data-id="${o.id}" data-prev="${esc(o.status)}"
+              ${locked ? 'disabled title="Đơn đã hủy không thể đổi trạng thái"' : ''} aria-label="Trạng thái đơn ${esc(o.order_code || o.id)}">
+              ${Object.entries(ORDER_STATUS)
+                .map(([value, text]) => `<option value="${value}" ${o.status === value ? 'selected' : ''}>${text}</option>`)
+                .join('')}
+            </select>
+          </td>
+        </tr>`;
+    })
+    .join('');
+}
+
+function adminOrderTable(orders) {
+  if (!orders.length) return emptyState('box', 'Chưa có đơn hàng', 'Đơn hàng mới sẽ xuất hiện tại đây.');
+  return `<div class="table-wrap"><table class="table">
+    <thead><tr><th>Đơn hàng</th><th>Khách hàng</th><th>Sản phẩm</th><th>Tổng tiền</th><th>Trạng thái</th></tr></thead>
+    <tbody>${adminOrderRows(orders)}</tbody>
+  </table></div>`;
+}
+
+const ADMIN_TABS = {
+  async overview({ token }) {
+    const panel = $('#accountPanel');
+    const head = panelHead('Quản trị', 'Tổng quan', 'Số liệu toàn hệ thống, doanh thu không tính đơn đã hủy.');
+    panel.innerHTML = `${head}<div class="skeleton" style="height: 180px"></div>`;
+    const [stats, recent] = await Promise.all([api('/api/admin/stats'), api('/api/admin/orders?limit=5')]);
+    if (stale(token)) return;
+    const s = stats.data;
+    panel.innerHTML = `
+      ${head}
+      <div class="stat-grid">
+        ${statCard('Doanh thu', money(s.revenue))}
+        ${statCard('Đơn hàng', s.orders.total, `${s.orders.byStatus.CREATED} đơn chờ xác nhận`)}
+        ${statCard('Sản phẩm', s.products.total, `${s.products.outOfStock} sản phẩm hết hàng`)}
+        ${statCard('Người dùng', s.users.total, `${s.users.admin} quản trị · ${s.users.seller} người bán · ${s.users.user} người mua`)}
+      </div>
+      <h3 class="sub-title">Đơn hàng theo trạng thái</h3>
+      <div class="status-list">
+        ${Object.entries(s.orders.byStatus)
+          .map(
+            ([status, count]) =>
+              `<a class="status-item" href="#/admin/orders?status=${status}">${statusTag(status)}<strong>${count}</strong></a>`
+          )
+          .join('')}
+      </div>
+      <div class="sub-head"><h3 class="sub-title">Đơn hàng mới nhất</h3><a class="link-arrow" href="#/admin/orders">Xem tất cả ${icon('arrow')}</a></div>
+      ${adminOrderTable(recent.data)}`;
+  },
+
+  async users({ query, token }) {
+    const role = query.get('role') || '';
+    const q = query.get('q') || '';
+    const params = new URLSearchParams();
+    if (role) params.set('role', role);
+    if (q) params.set('q', q);
+    const panel = $('#accountPanel');
+    const head = panelHead('Quản trị', 'Người dùng & phân quyền', 'Đổi quyền có hiệu lực ngay, người dùng không cần đăng nhập lại.');
+    panel.innerHTML = `${head}<div class="skeleton" style="height: 180px"></div>`;
+    const res = await api(`/api/admin/users?${params}`);
+    if (stale(token)) return;
+    panel.innerHTML = `
+      ${head}
+      <div class="admin-toolbar">
+        ${filterChips('role', role, [['', 'Tất cả'], ['admin', 'Quản trị viên'], ['seller', 'Người bán'], ['user', 'Người mua']])}
+        <form class="admin-search" data-form="admin-search" role="search">
+          <input class="input input--sm" name="q" value="${esc(q)}" placeholder="Tìm tên, email, SĐT..." aria-label="Tìm người dùng">
+          <button class="btn btn--sm" type="submit">Tìm</button>
+        </form>
+      </div>
+      ${
+        res.data.length
+          ? `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Tài khoản</th><th>Số điện thoại</th><th>Ngày tham gia</th><th>Đơn mua</th><th>Sản phẩm</th><th>Quyền</th></tr></thead>
+              <tbody>${res.data
+                .map((u) => {
+                  const self = u.id === state.user.id;
+                  return `
+                  <tr>
+                    <td><strong>${esc(u.username)}</strong>${u.google_linked ? ' <span class="tag-google">Google</span>' : ''}<small>${esc(u.email)}</small></td>
+                    <td>${esc(u.phone || '—')}</td>
+                    <td>${formatDate(u.created_at)}</td>
+                    <td>${u.order_count}</td>
+                    <td>${u.product_count}</td>
+                    <td>
+                      <select class="input input--sm role-select" data-change="admin-role" data-id="${u.id}" data-username="${esc(u.username)}" data-prev="${u.role}"
+                        ${self ? 'disabled title="Không thể tự thay đổi quyền của chính mình"' : ''} aria-label="Quyền của ${esc(u.username)}">
+                        ${Object.entries(ROLE_LABEL)
+                          .map(([value, text]) => `<option value="${value}" ${u.role === value ? 'selected' : ''}>${text}</option>`)
+                          .join('')}
+                      </select>
+                    </td>
+                  </tr>`;
+                })
+                .join('')}</tbody>
+            </table></div>`
+          : emptyState('user', 'Không có người dùng phù hợp', 'Thử bỏ bộ lọc hoặc đổi từ khóa tìm kiếm.')
+      }`;
+  },
+
+  async products({ query, token }) {
+    const page = Math.max(Number.parseInt(query.get('page'), 10) || 1, 1);
+    const panel = $('#accountPanel');
+    const action = `<a class="btn btn--solid btn--sm" href="#/sell">${icon('plus', 'icon-sm')} Đăng bán</a>`;
+    panel.innerHTML = `${panelHead('Quản trị', 'Sản phẩm', 'Toàn bộ sản phẩm trên sàn, mới nhất trước.', action)}<div class="skeleton" style="height: 180px"></div>`;
+    const res = await api(`/api/products?limit=50&sort=newest&page=${page}`);
+    if (stale(token)) return;
+    remember(res.data);
+    panel.innerHTML = `
+      ${panelHead('Quản trị', 'Sản phẩm', `${res.pagination.totalItems} sản phẩm trên sàn, mới nhất trước.`, action)}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Sản phẩm</th><th>Người bán</th><th>Giá bán</th><th>Tồn kho</th><th>Đã bán</th><th></th></tr></thead>
+        <tbody>${res.data
+          .map(
+            (p) => `
+            <tr>
+              <td><div class="cell-product"><img src="${esc(imgSrc(p.image_url))}" alt="" loading="lazy"><span><a href="#/product/${p.id}">${esc(p.name)}</a><small>${esc(p.category_name || '')}</small></span></div></td>
+              <td>${p.seller_username ? esc(p.seller_username) : '<span class="muted">AuraMall</span>'}</td>
+              <td>${money(p.price)}</td>
+              <td class="${p.stock <= 0 ? 'is-danger' : ''}">${p.stock}</td>
+              <td>${p.sold_count}</td>
+              <td><div class="mine-actions">
+                <a class="text-btn" href="#/sell/${p.id}">Sửa</a>
+                <button class="text-btn text-btn--danger" data-action="product-delete" data-id="${p.id}">Xóa</button>
+              </div></td>
+            </tr>`
+          )
+          .join('')}</tbody>
+      </table></div>
+      ${paginationHtml(res.pagination)}`;
+  },
+
+  async orders({ query, token }) {
+    const status = (query.get('status') || '').toUpperCase();
+    const page = Math.max(Number.parseInt(query.get('page'), 10) || 1, 1);
+    const params = new URLSearchParams({ page, limit: 20 });
+    if (status) params.set('status', status);
+    const panel = $('#accountPanel');
+    const head = panelHead('Quản trị', 'Đơn hàng', 'Cập nhật trạng thái đơn; hủy đơn sẽ hoàn lại tồn kho.');
+    panel.innerHTML = `${head}<div class="skeleton" style="height: 180px"></div>`;
+    const res = await api(`/api/admin/orders?${params}`);
+    if (stale(token)) return;
+    panel.innerHTML = `
+      ${head}
+      <div class="admin-toolbar">
+        ${filterChips('status', status, [['', 'Tất cả'], ...Object.entries(ORDER_STATUS)])}
+        <span class="result-count">${res.pagination.totalItems} đơn hàng</span>
+      </div>
+      ${adminOrderTable(res.data)}
+      ${paginationHtml(res.pagination)}`;
+  },
+};
+
+async function changeUserRole(select) {
+  const role = select.value;
+  const { prev, username } = select.dataset;
+  if (role === 'admin') {
+    const ok = await confirmDialog('Cấp quyền quản trị', `Cấp quyền quản trị viên cho ${username}? Người này sẽ quản lý được toàn bộ hệ thống.`, {
+      okText: 'Cấp quyền',
+    });
+    if (!ok) {
+      select.value = prev;
+      return;
+    }
+  }
+  try {
+    const res = await api(`/api/admin/users/${select.dataset.id}/role`, { method: 'PATCH', body: { role } });
+    select.dataset.prev = role;
+    toast(res.message);
+  } catch (err) {
+    select.value = prev;
+    toast(err.message, 'error');
+  }
+}
+
+async function changeOrderStatus(select) {
+  const status = select.value;
+  if (status === 'CANCELLED') {
+    const ok = await confirmDialog('Hủy đơn hàng', 'Hủy đơn sẽ hoàn lại tồn kho và không thể chuyển sang trạng thái khác. Tiếp tục?', {
+      okText: 'Hủy đơn',
+      cancelText: 'Giữ đơn',
+    });
+    if (!ok) {
+      select.value = select.dataset.prev;
+      return;
+    }
+  }
+  try {
+    const res = await api(`/api/admin/orders/${select.dataset.id}/status`, { method: 'PATCH', body: { status } });
+    select.dataset.prev = status;
+    toast(res.message);
+    if (status === 'CANCELLED') {
+      invalidateCatalog(); // tồn kho đã được hoàn lại
+      router();
+    }
+  } catch (err) {
+    select.value = select.dataset.prev;
     toast(err.message, 'error');
   }
 }
@@ -2641,6 +3153,8 @@ const VIEWS = {
   register: viewRegister,
   account: viewAccount,
   sell: viewSell,
+  admin: viewAdmin,
+  forbidden: async ({ params }) => renderForbidden(params),
   notFound: async () => renderNotFound(),
 };
 
@@ -2669,11 +3183,11 @@ const ACTIONS = {
 
   'set-filter': (el) => {
     state.pendingScroll = '#results';
-    go(catalogUrl({ [el.dataset.key]: el.dataset.value }));
+    go(routeUrl({ [el.dataset.key]: el.dataset.value }));
   },
   'clear-filter': (el) => {
     const keys = el.dataset.key === 'price' ? ['minPrice', 'maxPrice'] : [el.dataset.key];
-    go(catalogUrl(Object.fromEntries(keys.map((key) => [key, '']))));
+    go(routeUrl(Object.fromEntries(keys.map((key) => [key, '']))));
   },
   'reset-filters': () => go('/products'),
   'filters-open': () => {
@@ -2756,8 +3270,9 @@ const ACTIONS = {
     el.textContent = show ? 'Ẩn' : 'Hiện';
     el.setAttribute('aria-label', show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
   },
-  'forgot-password': () => toast('Vui lòng liên hệ hotline 1900 8899 để được cấp lại mật khẩu.'),
-  'social-login': (el) => toast(`Đăng nhập bằng ${el.dataset.provider} sẽ sớm ra mắt.`),
+  'forgot-password': () => toast('Vui lòng liên hệ quản trị viên (hotline 1900 8899) để được cấp lại mật khẩu.'),
+  'google-unavailable': () =>
+    toast('Đăng nhập Google chưa được bật: quản trị viên cần đặt GOOGLE_CLIENT_ID cho backend (xem README).', 'error'),
   'avatar-pick': () => $('#avatarFile')?.click(),
   'product-delete': (el) => deleteProduct(Number(el.dataset.id)),
 };
@@ -2776,8 +3291,10 @@ const CHANGES = {
     $$('[data-change="cart-select"]').forEach((box) => (box.checked = !box.disabled && el.checked));
     updateCartSummary();
   },
-  'flash-filter': (el) => go(catalogUrl({ flashSale: el.checked ? '1' : '' })),
+  'flash-filter': (el) => go(routeUrl({ flashSale: el.checked ? '1' : '' })),
   'avatar-file': pickAvatarFile,
+  'admin-role': changeUserRole,
+  'admin-order-status': changeOrderStatus,
 };
 
 const FORMS = {
@@ -2793,7 +3310,7 @@ const FORMS = {
       return;
     }
     state.pendingScroll = '#results';
-    go(catalogUrl({ minPrice: min, maxPrice: max }));
+    go(routeUrl({ minPrice: min, maxPrice: max }));
   },
   login: submitLogin,
   register: submitRegister,
@@ -2808,6 +3325,8 @@ const FORMS = {
     closeModal({ silent: true });
   },
   product: submitProduct,
+  password: submitPassword,
+  'admin-search': (form) => go(routeUrl({ q: form.q.value.trim() })),
 };
 
 function bindEvents() {
@@ -2833,7 +3352,7 @@ function bindEvents() {
   document.addEventListener('input', (e) => {
     const el = e.target;
     if (el.id === 'searchInput') liveSearch(el.value);
-    else if (el.id === 'regPw' || el.id === 'regPw2') updatePasswordHints();
+    else if (el.dataset.pw) updatePasswordHints();
     else if (el.closest('form[data-form="product"]')) updateSellPreview();
   });
 

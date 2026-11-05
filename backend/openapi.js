@@ -31,9 +31,12 @@ const idParam = (description) => ({
 });
 
 const UNAUTHORIZED = fail('Chưa đăng nhập hoặc token hết hạn', 'Vui lòng đăng nhập để thực hiện thao tác này.');
+const FORBIDDEN = fail('Vai trò không đủ quyền', 'Bạn không có quyền thực hiện thao tác này.');
 const BEARER = [{ bearerAuth: [] }];
-// Backend không chặn khi thiếu token: dùng tài khoản mẫu id = 1 (chế độ demo của nhóm)
+// Chỉ dùng cho tạo đơn: không gửi token thì là đơn của khách vãng lai (k6 loadtest)
 const OPTIONAL_BEARER = [{}, { bearerAuth: [] }];
+const ROLE_ENUM = { type: 'string', enum: ['admin', 'seller', 'user'] };
+const ORDER_STATUS_ENUM = { type: 'string', enum: ['CREATED', 'CONFIRMED', 'DELIVERING', 'COMPLETED', 'CANCELLED'] };
 
 const productExample = {
   id: 1,
@@ -67,8 +70,9 @@ module.exports = {
       'API của hệ thống TMĐT **AuraMall** (Đề tài 07: hạ tầng 3 tầng Nginx → Node.js Express → PostgreSQL).',
       '',
       '- Định dạng phản hồi theo JSend: `success` (2xx), `fail` (4xx, lỗi dữ liệu gửi lên), `error` (5xx).',
-      '- Xác thực: đăng nhập qua `POST /api/auth/login`, bấm **Authorize** và dán `token` nhận được.',
-      '- Tài khoản mẫu: `auramall_user` / `Password123`.',
+      '- Xác thực: đăng nhập qua `POST /api/auth/login` (hoặc `POST /api/auth/google`), bấm **Authorize** và dán `token` nhận được.',
+      '- Phân quyền 3 vai trò: `user` (người mua), `seller` (người bán: kênh người bán), `admin` (quản trị: mọi API).',
+      '- Tài khoản mẫu (mật khẩu `Password123`): `auramall_user`, `auramall_seller`, `auramall_admin`.',
       '- Tài liệu dạng văn bản: `docs/api-contract.md`.',
     ].join('\n'),
   },
@@ -78,9 +82,10 @@ module.exports = {
     { name: 'Xác thực', description: 'Đăng ký, đăng nhập, thông tin tài khoản' },
     { name: 'Danh mục', description: 'Cây danh mục sản phẩm' },
     { name: 'Sản phẩm', description: 'Luồng nghiệp vụ 1: đọc danh mục sản phẩm' },
-    { name: 'Kênh người bán', description: 'Đăng bán, sửa, xóa sản phẩm của chính mình (cần đăng nhập)' },
+    { name: 'Kênh người bán', description: 'Quyền seller hoặc admin: đăng bán, sửa, xóa sản phẩm, xem đơn của shop' },
     { name: 'Đơn hàng', description: 'Luồng nghiệp vụ 2: đặt hàng, trừ kho nguyên tử' },
-    { name: 'Người dùng', description: 'Hồ sơ cá nhân, ảnh đại diện, sổ địa chỉ' },
+    { name: 'Người dùng', description: 'Hồ sơ cá nhân, ảnh đại diện, sổ địa chỉ (cần đăng nhập)' },
+    { name: 'Quản trị', description: 'Chỉ admin: thống kê, phân quyền người dùng, quản lý đơn hàng' },
   ],
   components: {
     securitySchemes: {
@@ -120,6 +125,7 @@ module.exports = {
           gender: { type: 'string', example: 'nam' },
           birthday: { type: 'string', format: 'date', nullable: true, example: '1998-05-15' },
           avatarUrl: { type: 'string', nullable: true },
+          role: { ...ROLE_ENUM, example: 'user' },
         },
       },
       Profile: {
@@ -134,6 +140,9 @@ module.exports = {
           birthday: { type: 'string', format: 'date-time', nullable: true },
           avatar_url: { type: 'string', nullable: true },
           created_at: { type: 'string', format: 'date-time' },
+          role: { ...ROLE_ENUM, example: 'user' },
+          has_password: { type: 'boolean', description: 'false: tài khoản tạo bằng Google, chưa đặt mật khẩu' },
+          google_linked: { type: 'boolean', description: 'Đã liên kết tài khoản Google' },
         },
       },
       AuthResponse: {
@@ -383,6 +392,7 @@ module.exports = {
                 phone: { type: 'string', description: '10 - 11 chữ số' },
                 password: { type: 'string', description: 'Tối thiểu 8 ký tự, có chữ hoa, chữ thường và số' },
                 confirmPassword: { type: 'string' },
+                role: { type: 'string', enum: ['user', 'seller'], default: 'user', description: 'Loại tài khoản; quyền admin không tự đăng ký được' },
               },
             },
             {
@@ -391,12 +401,13 @@ module.exports = {
               phone: '0988776655',
               password: 'Password123',
               confirmPassword: 'Password123',
+              role: 'user',
             }
           ),
         },
         responses: {
           201: { description: 'Đăng ký thành công, trả kèm token', content: json(ref('AuthResponse')) },
-          400: fail('Sai định dạng hoặc trùng tên đăng nhập/email', 'Tên đăng nhập đã được sử dụng.'),
+          400: fail('Sai định dạng, trùng tên đăng nhập/email hoặc xin quyền admin', 'Tên đăng nhập đã được sử dụng.'),
         },
       },
     },
@@ -423,6 +434,80 @@ module.exports = {
           200: { description: 'Đăng nhập thành công', content: json(ref('AuthResponse')) },
           400: fail('Thiếu thông tin', 'Vui lòng nhập tên đăng nhập/email/số điện thoại và mật khẩu.'),
           401: fail('Sai tài khoản hoặc mật khẩu', 'Tài khoản hoặc mật khẩu không chính xác.'),
+        },
+      },
+    },
+    '/api/auth/config': {
+      get: {
+        tags: ['Xác thực'],
+        summary: 'Cấu hình đăng nhập Google cho giao diện',
+        responses: {
+          200: success('Client ID công khai, null nếu chưa cấu hình GOOGLE_CLIENT_ID', {
+            type: 'object',
+            properties: { googleClientId: { type: 'string', nullable: true } },
+          }),
+        },
+      },
+    },
+    '/api/auth/google': {
+      post: {
+        tags: ['Xác thực'],
+        summary: 'Đăng nhập / đăng ký bằng Google',
+        description:
+          'Gửi `credential` (ID token) nhận từ nút "Sign in with Google". Backend kiểm tra chữ ký RS256 theo khóa công khai của Google, ' +
+          '`aud` = GOOGLE_CLIENT_ID, hạn dùng và email đã xác minh. Email đã có tài khoản thì liên kết vào tài khoản đó, chưa có thì tạo mới (không mật khẩu).',
+        requestBody: {
+          required: true,
+          content: json(
+            {
+              type: 'object',
+              required: ['credential'],
+              properties: {
+                credential: { type: 'string', description: 'ID token Google' },
+                role: { type: 'string', enum: ['user', 'seller'], default: 'user', description: 'Chỉ dùng khi tạo tài khoản mới' },
+              },
+            },
+            { credential: 'eyJhbGciOiJSUzI1NiIsImtpZCI6Ij...', role: 'user' }
+          ),
+        },
+        responses: {
+          200: { description: 'Đăng nhập tài khoản đã có', content: json(ref('AuthResponse')) },
+          201: { description: 'Đã tạo tài khoản mới từ Google', content: json(ref('AuthResponse')) },
+          400: fail('Email Google chưa xác minh hoặc role sai', 'Email Google chưa được xác minh.'),
+          401: fail('Token sai chữ ký, sai client ID hoặc hết hạn', 'Phiên đăng nhập Google không hợp lệ hoặc đã hết hạn.'),
+          409: fail('Email đã liên kết với tài khoản Google khác', 'Email này đã liên kết với một tài khoản Google khác.'),
+          503: fail('Chưa cấu hình GOOGLE_CLIENT_ID', 'Đăng nhập Google chưa được cấu hình (thiếu GOOGLE_CLIENT_ID).'),
+        },
+      },
+    },
+    '/api/auth/password': {
+      put: {
+        tags: ['Xác thực'],
+        summary: 'Đổi mật khẩu',
+        description: 'Tài khoản tạo bằng Google chưa có mật khẩu (`has_password = false`) thì đặt mới, không cần `currentPassword`.',
+        security: BEARER,
+        requestBody: {
+          required: true,
+          content: json(
+            {
+              type: 'object',
+              required: ['newPassword', 'confirmPassword'],
+              properties: {
+                currentPassword: { type: 'string' },
+                newPassword: { type: 'string', description: 'Tối thiểu 8 ký tự, có chữ hoa, chữ thường và số' },
+                confirmPassword: { type: 'string' },
+              },
+            },
+            { currentPassword: 'Password123', newPassword: 'Matkhaumoi1', confirmPassword: 'Matkhaumoi1' }
+          ),
+        },
+        responses: {
+          200: {
+            description: 'Đã đổi mật khẩu',
+            content: json(ref('Error'), { status: 'success', message: 'Đổi mật khẩu thành công.' }),
+          },
+          400: fail('Sai mật khẩu hiện tại, mật khẩu mới yếu hoặc nhập lại không khớp', 'Mật khẩu hiện tại không chính xác.'),
+          401: UNAUTHORIZED,
         },
       },
     },
@@ -491,7 +576,7 @@ module.exports = {
       },
       post: {
         tags: ['Kênh người bán'],
-        summary: 'Đăng bán sản phẩm mới',
+        summary: 'Đăng bán sản phẩm mới (seller, admin)',
         description: 'Sản phẩm được gắn với người đang đăng nhập (`seller_id`). Chưa có đánh giá nên `rating` = 0.',
         security: BEARER,
         requestBody: { required: true, content: json(ref('ProductInput')) },
@@ -501,6 +586,7 @@ module.exports = {
           }),
           400: fail('Dữ liệu không hợp lệ', 'Giá gốc phải lớn hơn hoặc bằng giá bán.'),
           401: UNAUTHORIZED,
+          403: FORBIDDEN,
         },
       },
     },
@@ -517,7 +603,7 @@ module.exports = {
       },
       put: {
         tags: ['Kênh người bán'],
-        summary: 'Sửa sản phẩm do mình đăng bán',
+        summary: 'Sửa sản phẩm (seller: sản phẩm của mình, admin: mọi sản phẩm)',
         description: 'Gửi đầy đủ các trường như khi đăng bán.',
         security: BEARER,
         requestBody: { required: true, content: json(ref('ProductInput')) },
@@ -531,7 +617,7 @@ module.exports = {
       },
       delete: {
         tags: ['Kênh người bán'],
-        summary: 'Xóa sản phẩm do mình đăng bán',
+        summary: 'Xóa sản phẩm (seller: sản phẩm của mình, admin: mọi sản phẩm)',
         security: BEARER,
         responses: {
           200: {
@@ -551,11 +637,12 @@ module.exports = {
     '/api/user/products': {
       get: {
         tags: ['Kênh người bán'],
-        summary: 'Sản phẩm do tôi đăng bán (mới nhất trước)',
+        summary: 'Sản phẩm do tôi đăng bán, mới nhất trước (seller, admin)',
         security: BEARER,
         responses: {
           200: success('Danh sách sản phẩm', { type: 'array', items: ref('Product') }, { total: { type: 'integer' } }),
           401: UNAUTHORIZED,
+          403: FORBIDDEN,
         },
       },
     },
@@ -565,7 +652,7 @@ module.exports = {
         summary: 'Tạo đơn hàng, trừ kho nguyên tử trong một transaction',
         description:
           'Tồn kho được trừ bằng `UPDATE ... WHERE stock >= quantity` nên nhiều khách đặt cùng lúc không bị bán vượt số lượng. ' +
-          'Không gửi token thì đơn hàng gắn với tài khoản mẫu id = 1 (tương thích k6 loadtest).',
+          'Không gửi token thì là đơn của khách vãng lai (`user_id` = NULL, dùng cho k6 loadtest).',
         security: OPTIONAL_BEARER,
         requestBody: {
           required: true,
@@ -594,28 +681,32 @@ module.exports = {
         },
         responses: {
           201: { description: 'Tạo đơn thành công', content: json(ref('OrderCreated')) },
-          400: fail('Hết hàng hoặc dữ liệu sai', 'rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!'),
+          400: fail('Dữ liệu đơn hàng sai', 'Dữ liệu đơn hàng không hợp lệ, cần ít nhất 1 sản phẩm.'),
           404: fail('Sản phẩm không tồn tại', 'Không tìm thấy sản phẩm có ID 999.'),
+          409: fail('Hết hàng', 'rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!'),
         },
       },
       get: {
         tags: ['Đơn hàng'],
-        summary: 'Danh sách đơn hàng (50 đơn mới nhất)',
-        description: 'Có token: đơn của người dùng đó. Không có token: tất cả đơn, hoặc lọc theo `userId`.',
-        security: OPTIONAL_BEARER,
-        parameters: [{ name: 'userId', in: 'query', schema: { type: 'integer' } }],
+        summary: 'Đơn mua của tôi (50 đơn mới nhất)',
+        description: 'Chỉ trả đơn của người đang đăng nhập. Admin xem toàn bộ đơn tại `GET /api/admin/orders`.',
+        security: BEARER,
         responses: {
           200: success('Danh sách đơn hàng', { type: 'array', items: ref('Order') }, { total: { type: 'integer' } }),
+          401: UNAUTHORIZED,
         },
       },
     },
     '/api/orders/{id}': {
       get: {
         tags: ['Đơn hàng'],
-        summary: 'Chi tiết một đơn hàng',
+        summary: 'Chi tiết một đơn hàng (chủ đơn hoặc admin)',
+        security: BEARER,
         parameters: [idParam('ID đơn hàng')],
         responses: {
           200: success('Chi tiết đơn hàng', ref('Order')),
+          401: UNAUTHORIZED,
+          403: fail('Không phải đơn của bạn', 'Bạn không có quyền xem đơn hàng này.'),
           404: fail('Không có đơn hàng', 'Không tìm thấy đơn hàng.'),
         },
       },
@@ -624,7 +715,7 @@ module.exports = {
       get: {
         tags: ['Người dùng'],
         summary: 'Xem hồ sơ cá nhân',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         responses: {
           200: success('Hồ sơ', ref('Profile')),
           404: fail('Không có người dùng', 'Không tìm thấy thông tin người dùng.'),
@@ -633,7 +724,7 @@ module.exports = {
       put: {
         tags: ['Người dùng'],
         summary: 'Cập nhật hồ sơ cá nhân',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         requestBody: { required: true, content: json(ref('ProfileUpdate')) },
         responses: {
           200: success('Đã cập nhật', ref('Profile'), { message: { type: 'string', example: 'cập nhật hồ sơ thành công' } }),
@@ -645,7 +736,7 @@ module.exports = {
       post: {
         tags: ['Người dùng'],
         summary: 'Tải ảnh đại diện (Base64 Data URL, png/jpg, tối đa 2MB)',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         requestBody: {
           required: true,
           content: json(
@@ -673,7 +764,7 @@ module.exports = {
       get: {
         tags: ['Người dùng'],
         summary: 'Sổ địa chỉ nhận hàng (mặc định đứng đầu)',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         responses: {
           200: success('Danh sách địa chỉ', { type: 'array', items: ref('Address') }, { total: { type: 'integer' } }),
         },
@@ -682,7 +773,7 @@ module.exports = {
         tags: ['Người dùng'],
         summary: 'Thêm địa chỉ nhận hàng',
         description: 'Địa chỉ đầu tiên tự động là mặc định.',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         requestBody: { required: true, content: json(ref('AddressInput')) },
         responses: {
           201: success('Đã thêm', ref('Address'), { message: { type: 'string' } }),
@@ -695,7 +786,7 @@ module.exports = {
       put: {
         tags: ['Người dùng'],
         summary: 'Sửa địa chỉ nhận hàng',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         requestBody: { required: true, content: json(ref('AddressInput')) },
         responses: {
           200: success('Đã cập nhật', ref('Address'), { message: { type: 'string' } }),
@@ -706,7 +797,7 @@ module.exports = {
         tags: ['Người dùng'],
         summary: 'Xóa địa chỉ nhận hàng',
         description: 'Không cho xóa khi chỉ còn 1 địa chỉ. Xóa địa chỉ mặc định thì địa chỉ khác được đặt làm mặc định.',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         responses: {
           200: {
             description: 'Đã xóa',
@@ -721,11 +812,194 @@ module.exports = {
       patch: {
         tags: ['Người dùng'],
         summary: 'Đặt làm địa chỉ mặc định',
-        security: OPTIONAL_BEARER,
+        security: BEARER,
         parameters: [idParam('ID địa chỉ')],
         responses: {
           200: success('Đã đặt mặc định', ref('Address'), { message: { type: 'string' } }),
           404: fail('Không có địa chỉ', 'Không tìm thấy địa chỉ.'),
+        },
+      },
+    },
+    '/api/seller/orders': {
+      get: {
+        tags: ['Kênh người bán'],
+        summary: 'Đơn hàng có sản phẩm của shop (seller, admin)',
+        description: 'Mỗi dòng là một sản phẩm của shop trong một đơn. `summary` không tính đơn đã hủy.',
+        security: BEARER,
+        responses: {
+          200: {
+            description: 'Danh sách dòng đơn và thống kê',
+            content: json({
+              type: 'object',
+              properties: {
+                status: { type: 'string', example: 'success' },
+                total: { type: 'integer' },
+                summary: {
+                  type: 'object',
+                  properties: { orders: { type: 'integer' }, itemsSold: { type: 'integer' }, revenue: { type: 'number' } },
+                },
+                data: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      order_id: { type: 'integer' },
+                      order_code: { type: 'string' },
+                      status: { type: 'string' },
+                      created_at: { type: 'string', format: 'date-time' },
+                      buyer_username: { type: 'string', nullable: true },
+                      recipient_name: { type: 'string' },
+                      recipient_phone: { type: 'string' },
+                      shipping_address: { type: 'string' },
+                      product_id: { type: 'integer' },
+                      product_name: { type: 'string' },
+                      quantity: { type: 'integer' },
+                      unit_price: { type: 'number' },
+                      subtotal: { type: 'number' },
+                    },
+                  },
+                },
+              },
+            }),
+          },
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+        },
+      },
+    },
+    '/api/admin/stats': {
+      get: {
+        tags: ['Quản trị'],
+        summary: 'Thống kê toàn hệ thống',
+        security: BEARER,
+        responses: {
+          200: success('Số liệu', {
+            type: 'object',
+            properties: {
+              users: { type: 'object', example: { total: 3, admin: 1, seller: 1, user: 1 } },
+              products: { type: 'object', example: { total: 24, outOfStock: 1 } },
+              orders: {
+                type: 'object',
+                example: { total: 2, byStatus: { CREATED: 1, CONFIRMED: 0, DELIVERING: 0, COMPLETED: 1, CANCELLED: 0 } },
+              },
+              revenue: { type: 'number', description: 'Tổng tiền các đơn chưa hủy', example: 2500000 },
+            },
+          }),
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+        },
+      },
+    },
+    '/api/admin/users': {
+      get: {
+        tags: ['Quản trị'],
+        summary: 'Danh sách người dùng',
+        security: BEARER,
+        parameters: [
+          { name: 'role', in: 'query', schema: ROLE_ENUM },
+          { name: 'q', in: 'query', description: 'Tìm theo tên đăng nhập, email, số điện thoại', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: success(
+            'Danh sách người dùng',
+            {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  username: { type: 'string' },
+                  email: { type: 'string' },
+                  phone: { type: 'string' },
+                  role: ROLE_ENUM,
+                  created_at: { type: 'string', format: 'date-time' },
+                  google_linked: { type: 'boolean' },
+                  order_count: { type: 'integer' },
+                  product_count: { type: 'integer' },
+                },
+              },
+            },
+            { total: { type: 'integer' } }
+          ),
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+        },
+      },
+    },
+    '/api/admin/users/{id}/role': {
+      patch: {
+        tags: ['Quản trị'],
+        summary: 'Phân quyền người dùng',
+        description: 'Có hiệu lực ngay ở request tiếp theo. Admin không tự đổi quyền của chính mình.',
+        security: BEARER,
+        parameters: [idParam('ID người dùng')],
+        requestBody: {
+          required: true,
+          content: json({ type: 'object', required: ['role'], properties: { role: ROLE_ENUM } }, { role: 'seller' }),
+        },
+        responses: {
+          200: success(
+            'Đã đổi quyền',
+            { type: 'object', properties: { id: { type: 'integer' }, username: { type: 'string' }, role: ROLE_ENUM } },
+            { message: { type: 'string', example: 'Đã cập nhật quyền cho auramall_user.' } }
+          ),
+          400: fail('Quyền sai hoặc tự đổi quyền của mình', 'Không thể tự thay đổi quyền của chính mình.'),
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+          404: fail('Không có người dùng', 'Không tìm thấy người dùng.'),
+        },
+      },
+    },
+    '/api/admin/orders': {
+      get: {
+        tags: ['Quản trị'],
+        summary: 'Toàn bộ đơn hàng (phân trang, lọc trạng thái)',
+        security: BEARER,
+        parameters: [
+          { name: 'status', in: 'query', schema: ORDER_STATUS_ENUM },
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        ],
+        responses: {
+          200: {
+            description: 'Một trang đơn hàng, `buyer_username` = null là đơn khách vãng lai',
+            content: json({
+              type: 'object',
+              properties: {
+                status: { type: 'string', example: 'success' },
+                total: { type: 'integer' },
+                data: { type: 'array', items: ref('Order') },
+                pagination: ref('Pagination'),
+              },
+            }),
+          },
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+        },
+      },
+    },
+    '/api/admin/orders/{id}/status': {
+      patch: {
+        tags: ['Quản trị'],
+        summary: 'Cập nhật trạng thái đơn hàng',
+        description: 'Chuyển sang `CANCELLED` sẽ hoàn lại tồn kho và lượt bán; đơn đã hủy không chuyển sang trạng thái khác.',
+        security: BEARER,
+        parameters: [idParam('ID đơn hàng')],
+        requestBody: {
+          required: true,
+          content: json({ type: 'object', required: ['status'], properties: { status: ORDER_STATUS_ENUM } }, { status: 'CONFIRMED' }),
+        },
+        responses: {
+          200: success(
+            'Đã cập nhật',
+            { type: 'object', properties: { id: { type: 'integer' }, status: { type: 'string' } } },
+            { message: { type: 'string', example: 'Đã cập nhật trạng thái đơn hàng.' } }
+          ),
+          400: fail('Trạng thái không hợp lệ', 'Trạng thái phải là một trong: CREATED, CONFIRMED, DELIVERING, COMPLETED, CANCELLED.'),
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+          404: fail('Không có đơn hàng', 'Không tìm thấy đơn hàng.'),
+          409: fail('Đơn đã hủy', 'Đơn hàng đã hủy, không thể chuyển sang trạng thái khác.'),
         },
       },
     },

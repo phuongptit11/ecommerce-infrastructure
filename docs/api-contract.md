@@ -13,6 +13,21 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
 
 ---
 
+## 0. PHÂN QUYỀN (3 VAI TRÒ)
+
+| Vai trò | `role` | Được làm |
+|---------|--------|----------|
+| Khách (chưa đăng nhập) | — | Xem danh sách sản phẩm, danh mục; tạo đơn kiểu k6 (đơn khách vãng lai) |
+| Người mua | `user` | Hồ sơ, đổi mật khẩu, sổ địa chỉ, đặt hàng, xem đơn mua của mình |
+| Người bán | `seller` | Như người mua + đăng/sửa/xóa sản phẩm của mình, xem đơn hàng có sản phẩm của shop |
+| Quản trị | `admin` | Mọi quyền + thống kê, phân quyền người dùng, quản lý mọi sản phẩm và đơn hàng |
+
+- Đăng ký chỉ chọn được `user` hoặc `seller`; quyền `admin` do admin khác cấp qua `PATCH /api/admin/users/:id/role`.
+- Backend đọc vai trò từ CSDL ở mỗi request cần quyền, nên đổi quyền có hiệu lực ngay, không cần đăng nhập lại.
+- Tài khoản mẫu (mật khẩu `Password123`): `auramall_user`, `auramall_seller`, `auramall_admin`.
+
+---
+
 ## 1. MÃ TRẠNG THÁI HTTP & ĐỊNH DẠNG LỖI
 
 ### Cấu trúc thông báo lỗi chuẩn:
@@ -27,11 +42,11 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
 |-------------|-----------|--------------------|
 | **200 OK** | `success` | Truy vấn hoặc cập nhật dữ liệu thành công |
 | **201 Created** | `success` | Khởi tạo tài nguyên thành công (Đăng ký, Tạo đơn hàng, Thêm địa chỉ) |
-| **400 Bad Request** | `fail` | Thiếu trường bắt buộc, sai định dạng (mật khẩu yếu, số điện thoại sai định dạng, hết hàng khi đặt hàng, cố gắng xóa địa chỉ duy nhất) |
+| **400 Bad Request** | `fail` | Thiếu trường bắt buộc, sai định dạng (mật khẩu yếu, số điện thoại sai định dạng, sai mật khẩu hiện tại khi đổi mật khẩu, cố gắng xóa địa chỉ duy nhất) |
 | **401 Unauthorized**| `fail` | Sai tài khoản/mật khẩu, chưa đăng nhập hoặc Token hết hạn |
-| **403 Forbidden** | `fail` | Sửa/xóa sản phẩm không phải do mình đăng bán |
+| **403 Forbidden** | `fail` | Vai trò không đủ quyền (người mua gọi API người bán/quản trị), sửa/xóa sản phẩm hoặc xem đơn của người khác |
 | **404 Not Found** | `fail` | Không tìm thấy sản phẩm, đơn hàng, người dùng hoặc đường dẫn |
-| **409 Conflict** | `fail` | Trùng lặp dữ liệu hoặc xung đột tồn kho |
+| **409 Conflict** | `fail` | Hết hàng khi đặt hàng, xóa sản phẩm đã có đơn, đổi trạng thái đơn đã hủy, email đã liên kết Google khác |
 | **500 Server Error**| `error` | Lỗi cơ sở dữ liệu hoặc máy chủ nội bộ |
 
 ---
@@ -75,11 +90,13 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
   "email": "user@auramall.vn",
   "phone": "0969795794",
   "password": "Password123",
-  "confirmPassword": "Password123"
+  "confirmPassword": "Password123",
+  "role": "user"
 }
 ```
 
 - **Ràng buộc kiểm tra (Validation)**:
+  - `role`: `user` (người mua, mặc định) hoặc `seller` (người bán). Gửi `admin` bị từ chối `400`.
   - `username`: 3 - 30 ký tự (chữ, số, gạch dưới).
   - `email`: Đúng định dạng email chuẩn RFC 5322.
   - `phone`: 10 đến 11 chữ số (vd: 0969795794).
@@ -138,6 +155,28 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
 
 ---
 
+- `user` trong phản hồi đăng ký/đăng nhập có thêm `role`. Tài khoản tạo bằng Google chưa đặt mật khẩu: `401` với thông báo hướng dẫn đăng nhập bằng Google.
+
+---
+
+### `GET /api/auth/config`
+Giao diện lấy Client ID để hiện nút Google: `{ "status": "success", "data": { "googleClientId": "xxx.apps.googleusercontent.com" } }` (`null` nếu chưa đặt `GOOGLE_CLIENT_ID`).
+
+### `POST /api/auth/google`
+Đăng nhập / đăng ký bằng Google. Body: `{ "credential": "<ID token từ nút Sign in with Google>", "role": "user" }` (`role` chỉ dùng khi tạo tài khoản mới).
+
+- Backend kiểm tra chữ ký RS256 theo khóa công khai của Google, `aud` = `GOOGLE_CLIENT_ID`, hạn dùng và `email_verified`.
+- Email đã có tài khoản thì liên kết Google vào tài khoản đó; chưa có thì tạo tài khoản mới (tên đăng nhập lấy từ email, chưa có mật khẩu, số điện thoại để trống).
+- Phản hồi giống đăng nhập: `200` (tài khoản đã có) hoặc `201` (vừa tạo). Lỗi: `401` (token sai/hết hạn), `409` (email đã liên kết Google khác), `503` (chưa cấu hình).
+
+### `PUT /api/auth/password`
+Đổi mật khẩu (cần đăng nhập). Body: `{ "currentPassword": "Password123", "newPassword": "Matkhaumoi1", "confirmPassword": "Matkhaumoi1" }`.
+
+- Tài khoản tạo bằng Google chưa có mật khẩu thì bỏ qua `currentPassword` (đặt mật khẩu lần đầu).
+- Sai mật khẩu hiện tại, mật khẩu mới yếu, nhập lại không khớp hoặc trùng mật khẩu cũ: `400`.
+
+---
+
 ### `GET /api/auth/me`
 Lấy thông tin tài khoản người dùng đang đăng nhập qua Header `Authorization: Bearer <token>`.
 
@@ -153,7 +192,10 @@ Lấy thông tin tài khoản người dùng đang đăng nhập qua Header `Aut
     "phone": "0969795794",
     "gender": "nam",
     "birthday": "1998-05-15",
-    "avatar_url": "https://images.unsplash.com/..."
+    "avatar_url": "https://images.unsplash.com/...",
+    "role": "user",
+    "has_password": true,
+    "google_linked": false
   }
 }
 ```
@@ -290,7 +332,7 @@ Lấy chi tiết một sản phẩm theo ID.
 
 ## 5b. KÊNH NGƯỜI BÁN (ĐĂNG BÁN SẢN PHẨM)
 
-Các API dưới đây **bắt buộc đăng nhập** (`401` nếu thiếu token). Người dùng chỉ sửa/xóa được sản phẩm do chính mình đăng (`403` nếu không phải).
+Các API dưới đây chỉ dành cho vai trò **`seller` hoặc `admin`** (`401` nếu thiếu token, `403` nếu là người mua). Người bán chỉ sửa/xóa được sản phẩm do chính mình đăng; admin quản lý được mọi sản phẩm.
 
 ### `POST /api/products`
 Đăng bán sản phẩm mới. Sản phẩm gắn với người đang đăng nhập (`seller_id`), chưa có đánh giá nên `rating = 0`, `review_count = 0`.
@@ -404,7 +446,9 @@ Tạo đơn hàng mới với cơ chế trừ kho nguyên tử (Atomic decrement
 }
 ```
 
-- **Response `400 Bad Request` (Hết hàng - đúng câu thông báo yêu cầu tại Page 3 PDF)**:
+- Không gửi token (k6 loadtest): đơn của khách vãng lai, `user_id` = NULL, không gán vào tài khoản nào.
+
+- **Response `409 Conflict` (Hết hàng - đúng câu thông báo yêu cầu tại Page 3 PDF)**:
 ```json
 {
   "status": "fail",
@@ -415,7 +459,7 @@ Tạo đơn hàng mới với cơ chế trừ kho nguyên tử (Atomic decrement
 ---
 
 ### `GET /api/orders`
-Tra cứu danh sách đơn hàng đã mua của người dùng (hoặc đơn hàng gần nhất).
+Đơn mua của người đang đăng nhập (bắt buộc token, `401` nếu thiếu). `GET /api/orders/:id` chỉ chủ đơn hoặc admin xem được (`403` với người khác).
 
 - **Response `200 OK`**:
 ```json
@@ -454,6 +498,8 @@ Tra cứu danh sách đơn hàng đã mua của người dùng (hoặc đơn hà
 ---
 
 ## 7. PHÂN HỆ HỒ SƠ & SỔ ĐỊA CHỈ NGƯỜI DÙNG
+
+Mọi API `/api/user/*` bắt buộc đăng nhập (`401` nếu thiếu token) và chỉ thao tác trên dữ liệu của chính người đó.
 
 ### `GET /api/user/profile`
 Lấy thông tin hồ sơ người dùng.
@@ -609,3 +655,44 @@ Xóa địa chỉ nhận hàng.
 }
 ```
 - Nếu còn nhiều địa chỉ và xóa địa chỉ mặc định, địa chỉ còn lại tự động được nâng cấp lên làm mặc định.
+
+---
+
+## 8. KÊNH NGƯỜI BÁN: ĐƠN HÀNG CỦA SHOP
+
+### `GET /api/seller/orders`
+Quyền `seller`/`admin`. Mỗi dòng là một sản phẩm của shop trong một đơn hàng (tối đa 200 dòng mới nhất).
+
+```json
+{
+  "status": "success",
+  "total": 1,
+  "summary": { "orders": 1, "itemsSold": 2, "revenue": 598000 },
+  "data": [
+    {
+      "order_id": 15, "order_code": "AUR-20261105-F362", "status": "CREATED",
+      "buyer_username": "auramall_user", "recipient_name": "Nguyễn Văn A",
+      "recipient_phone": "0969795794", "shipping_address": "Hà Nội",
+      "product_id": 22, "product_name": "Áo Polo Nam AuraMall Classic Cotton",
+      "quantity": 2, "unit_price": 299000, "subtotal": 598000
+    }
+  ]
+}
+```
+`summary` không tính đơn đã hủy.
+
+---
+
+## 9. QUẢN TRỊ (CHỈ ADMIN)
+
+| API | Mô tả |
+|-----|-------|
+| `GET /api/admin/stats` | Thống kê: người dùng theo quyền, sản phẩm (hết hàng), đơn theo trạng thái, doanh thu (không tính đơn hủy) |
+| `GET /api/admin/users?role=&q=` | Danh sách người dùng kèm số đơn mua, số sản phẩm đăng bán |
+| `PATCH /api/admin/users/:id/role` | Body `{ "role": "seller" }`. Không tự đổi quyền của chính mình (`400`) |
+| `GET /api/admin/orders?status=&page=&limit=` | Toàn bộ đơn hàng, phân trang; `buyer_username` = null là đơn khách vãng lai |
+| `PATCH /api/admin/orders/:id/status` | Body `{ "status": "CONFIRMED" }`. Trạng thái: `CREATED`, `CONFIRMED`, `DELIVERING`, `COMPLETED`, `CANCELLED` |
+
+- Chuyển sang `CANCELLED` sẽ hoàn lại tồn kho (`stock`) và lượt bán (`sold_count`) trong cùng transaction.
+- Đơn đã hủy không chuyển sang trạng thái khác: `409`.
+- Admin sửa/xóa mọi sản phẩm qua `PUT/DELETE /api/products/:id`.

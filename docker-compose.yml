@@ -40,6 +40,8 @@ services:
       DB_USER: ${DB_USER:-ecommerce_user}
       DB_PASSWORD: ${DB_PASSWORD:-ecommerce_secret}
       DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      # Đăng nhập Google: OAuth Client ID (để trống thì tắt), xem hướng dẫn trong .env.example
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     depends_on:
       database:
         condition: service_healthy

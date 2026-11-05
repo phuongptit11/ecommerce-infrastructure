@@ -47,7 +47,14 @@ Sau khi khởi động:
 * **Trang web:** [http://localhost](http://localhost)
 * **Tài liệu API (Swagger UI):** [http://localhost/api/docs/](http://localhost/api/docs/), bấm **Authorize** và dán token lấy từ `POST /api/auth/login` để thử các API cần đăng nhập.
 
-> CSDL tạo từ bản cũ vẫn dùng được: khi khởi động, backend tự thêm cột mới (`products.seller_id`) và đổi ảnh mẫu cũ (link Unsplash, một số đã hỏng) sang ảnh lưu tại `frontend/images/products/`.
+> CSDL tạo từ bản cũ vẫn dùng được: khi khởi động, backend tự thêm cột mới (`products.seller_id`, `users.role`, `users.google_sub`), tạo 2 tài khoản mẫu người bán/quản trị và đổi ảnh mẫu cũ (link Unsplash, một số đã hỏng) sang ảnh lưu tại `frontend/images/products/`.
+
+### Bật đăng nhập bằng Google (tùy chọn)
+1. Vào [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → **Create credentials** → **OAuth client ID** → loại **Web application**.
+2. Mục **Authorized JavaScript origins** thêm `http://localhost` (thêm cả cổng nếu đổi `NGINX_PORT`, ví dụ `http://localhost:8080`).
+3. Chép Client ID vào file `.env`: `GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com`, rồi chạy lại `docker compose up -d`.
+
+Chưa đặt `GOOGLE_CLIENT_ID` thì nút Google vẫn hiện nhưng báo chưa cấu hình; các chức năng khác không bị ảnh hưởng.
 
 Để kiểm tra trạng thái các container:
 ```bash
@@ -71,21 +78,32 @@ docker compose down
 
 Giao diện lấy cảm hứng từ phong cách trang Lexus: tông đen / than / trắng với điểm nhấn vàng đồng, chữ hoa giãn rộng (font Montserrat + Be Vietnam Pro, hỗ trợ tiếng Việt), khung ảnh cắt chéo, banner trình diễn sản phẩm, menu "Sản phẩm" dạng mega menu theo danh mục (giống menu "Mẫu xe"), hiệu ứng màn chắn nghiêng khi chuyển trang, nội dung hiện dần khi cuộn và vệt sáng lướt qua nút khi rê chuột.
 
-* Ứng dụng một trang (`frontend/index.html`, `app.js`, `styles.css`), định tuyến bằng hash: `#/`, `#/products`, `#/product/:id`, `#/cart`, `#/checkout`, `#/login`, `#/register`, `#/account/:tab`, `#/sell` nên nút Back/F5 hoạt động bình thường.
+* Ứng dụng một trang (`frontend/index.html`, `app.js`, `styles.css`), định tuyến bằng hash: `#/`, `#/products`, `#/product/:id`, `#/cart`, `#/checkout`, `#/login`, `#/register`, `#/account/:tab`, `#/sell`, `#/admin/:tab` nên nút Back/F5 hoạt động bình thường.
+* **Phân quyền 3 vai trò** (kiểm tra ở cả backend lẫn giao diện):
+
+  | Vai trò | Được làm |
+  |---------|----------|
+  | Khách | Xem trang chủ, danh sách sản phẩm, giỏ hàng; phải đăng nhập mới xem chi tiết sản phẩm và thanh toán |
+  | Người mua (`user`) | Xem chi tiết, mua hàng, hồ sơ, đổi mật khẩu, sổ địa chỉ, đơn mua |
+  | Người bán (`seller`) | Như người mua + kênh người bán: đăng/sửa/xóa sản phẩm của mình, xem đơn hàng của shop |
+  | Quản trị (`admin`) | Mọi quyền + trang quản trị: thống kê, phân quyền người dùng, quản lý mọi sản phẩm và đơn hàng |
+
+  Menu và liên kết tự ẩn/hiện theo vai trò; vào trang không đủ quyền sẽ hiện thông báo "Không có quyền truy cập".
 * Hiển thị tốt trên điện thoại (menu và bộ lọc dạng ngăn kéo), tôn trọng chế độ giảm chuyển động của hệ điều hành.
 
-Hệ thống gồm 7 phân hệ màn hình chuẩn TMĐT:
+Hệ thống gồm 8 phân hệ màn hình chuẩn TMĐT:
 
 ### 1. Phân hệ Xác thực (Auth: Đăng ký & Đăng nhập)
 * **Bố cục 2 cột**: Cột trái là banner giới thiệu Flash Sale và các ưu đãi đặc quyền; cột phải là Form thao tác.
 * **Màn hình Đăng ký**:
-  * Đầy đủ thông tin: Tên đăng nhập, Email, Số điện thoại, Mật khẩu, Nhập lại mật khẩu, Đăng ký qua Google/Facebook.
+  * Chọn loại tài khoản **Người mua / Người bán**, nhập Tên đăng nhập, Email, Số điện thoại, Mật khẩu, Nhập lại mật khẩu; hoặc đăng ký nhanh bằng Google.
   * **Realtime Validation**: Kiểm tra mật khẩu đạt chuẩn tối thiểu 8 ký tự, gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số; kiểm tra khớp mật khẩu ngay khi gõ.
   * Checkbox đồng ý Điều khoản dịch vụ; chuyển đổi nhanh sang màn Đăng nhập.
 * **Màn hình Đăng nhập**:
   * Đăng nhập linh hoạt bằng Tên đăng nhập / Email / Số điện thoại.
-  * Ghi nhớ đăng nhập (Remember me), Quên mật khẩu.
-  * Tự động lưu JWT Token và điều hướng quay lại trang người dùng đang duyệt dở.
+  * Ghi nhớ đăng nhập (Remember me), Quên mật khẩu (liên hệ quản trị viên).
+  * **Đăng nhập với Google**: nút chính thức của Google; backend kiểm tra chữ ký ID token, email đã có tài khoản thì liên kết, chưa có thì tạo tài khoản mới.
+  * Tự động lưu JWT Token và điều hướng quay lại trang người dùng đang duyệt dở (ví dụ trang chi tiết sản phẩm vừa bấm).
 
 ### 2. Trang Chủ & Danh Mục Sản Phẩm (Luồng Nghiệp vụ 1: `GET /api/products`)
 * **Header**:
@@ -99,11 +117,12 @@ Hệ thống gồm 7 phân hệ màn hình chuẩn TMĐT:
   * Lọc theo khoảng giá từ - đến và nút Áp dụng.
   * Lọc theo đánh giá sao (5 sao, 4 sao trở lên, 3 sao trở lên...).
 * **Khu vực nội dung chính**:
-  * Thanh sắp xếp: Phổ biến, Mới nhất, Bán chạy, Giá (Thấp đến Cao / Cao đến Thấp).
+  * Thanh sắp xếp: Phổ biến, Mới nhất, Bán chạy và một tab **Giá** duy nhất (bấm lần đầu: thấp đến cao, bấm tiếp: cao đến thấp, mũi tên chỉ chiều đang sắp).
   * Thẻ sản phẩm: Tỉ lệ ảnh 1:1 có hiệu ứng zoom nhẹ khi hover, tag giảm giá, tag Flash Sale, tên sản phẩm tự động cắt bằng `...` sau 2 dòng, giá thực tế màu đỏ nổi bật, sao đánh giá và tổng lượt bán.
   * Phân trang: Chia cụm 20 sản phẩm/1 trang (LIMIT 20 trong truy vấn backend).
 
 ### 3. Chi Tiết Sản Phẩm (Product Detail)
+* **Cần đăng nhập** mới xem được; khách bấm vào sản phẩm sẽ được chuyển tới trang đăng nhập rồi quay lại đúng sản phẩm.
 * Khung ảnh đại diện lớn bên trái + dải thumbnail nhỏ bên dưới (hover/click chuyển đổi ảnh).
 * Tên sản phẩm to rõ, số sao trung bình, lượt đánh giá và lượt bán.
 * Khung giá bán nổi bật kèm giá gốc gạch ngang.
@@ -122,7 +141,7 @@ Hệ thống gồm 7 phân hệ màn hình chuẩn TMĐT:
 * Khối ghi chú cho người bán và khối phương thức thanh toán (COD / Chuyển khoản VietQR).
 * Nút "Đặt hàng": Gửi request tạo đơn hàng với giao dịch Database trừ kho nguyên tử (Atomic deduction with row lock).
   * Thành công (201): Bật popup "Đặt hàng thành công!" hiển thị mã đơn, nút Về trang chủ và Xem chi tiết đơn hàng.
-  * Hết hàng (400): Hiển thị thông báo: *"rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!"*.
+  * Hết hàng (409): Hiển thị thông báo: *"rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!"*.
 
 ### 6. Trung Tâm Người Dùng (Account Center)
 * **Tab Hồ sơ cá nhân**:
@@ -130,6 +149,7 @@ Hệ thống gồm 7 phân hệ màn hình chuẩn TMĐT:
   * Email, Số điện thoại (validate 10-11 số), Giới tính (3 lựa chọn), Ngày sinh (DatePicker không vượt quá hiện tại).
   * Upload Avatar: Khung tròn hiển thị ảnh hiện tại, nút chọn ảnh từ máy tính, validate chỉ nhận `.png/.jpg/.jpeg` tối đa 2MB, **xem trước (preview) ảnh ngay lập tức trên khung tròn**.
   * Lưu cập nhật qua `PUT /api/user/profile` kèm Toast thông báo *"cập nhật hồ sơ thành công"*.
+* **Tab Đổi mật khẩu**: nhập mật khẩu hiện tại và mật khẩu mới (kiểm tra độ mạnh ngay khi gõ); tài khoản tạo bằng Google chưa có mật khẩu thì đặt mật khẩu mới.
 * **Tab Sổ địa chỉ**:
   * Danh sách địa chỉ nhận hàng, nhãn "Mặc định".
   * Thêm/Sửa địa chỉ.
@@ -138,10 +158,17 @@ Hệ thống gồm 7 phân hệ màn hình chuẩn TMĐT:
 * **Tab Đơn mua**:
   * Tra cứu danh sách tất cả các đơn hàng đã đặt thành công.
 
-### 7. Kênh Người Bán (Đăng bán sản phẩm)
+### 7. Kênh Người Bán (chỉ tài khoản người bán và quản trị)
 * Trang `#/sell`: đăng bán sản phẩm mới với tên, danh mục, giá bán, giá gốc (tự tính % giảm), tồn kho, link ảnh chính, ảnh phụ và mô tả; **xem trước thẻ sản phẩm** ngay khi nhập.
-* Tab "Sản phẩm của tôi" trong trung tâm tài khoản: danh sách sản phẩm đã đăng, sửa, xóa (sản phẩm đã có đơn hàng thì không xóa được, chỉ đặt tồn kho về 0).
-* API: `POST/PUT/DELETE /api/products`, `GET /api/user/products`, chỉ chủ sản phẩm mới được sửa/xóa (mã 403 nếu không phải).
+* Tab "Sản phẩm của tôi": danh sách sản phẩm đã đăng, sửa, xóa (sản phẩm đã có đơn hàng thì không xóa được, chỉ đặt tồn kho về 0).
+* Tab "Đơn hàng của shop": các đơn có sản phẩm của shop (người nhận, địa chỉ giao, trạng thái) kèm số đơn, số sản phẩm đã bán và doanh thu.
+* API: `POST/PUT/DELETE /api/products`, `GET /api/user/products`, `GET /api/seller/orders`; người mua gọi sẽ bị từ chối (403), người bán chỉ sửa/xóa được sản phẩm của mình.
+
+### 8. Quản Trị Hệ Thống (chỉ quản trị viên, `#/admin`)
+* **Tổng quan**: doanh thu (không tính đơn hủy), số đơn theo trạng thái, số sản phẩm/hết hàng, số người dùng theo quyền, đơn hàng mới nhất.
+* **Người dùng & phân quyền**: lọc theo quyền, tìm theo tên/email/SĐT, đổi quyền Người mua / Người bán / Quản trị viên ngay trên bảng (không tự đổi quyền của mình được).
+* **Sản phẩm**: toàn bộ sản phẩm trên sàn kèm người bán, sửa/xóa bất kỳ sản phẩm nào.
+* **Đơn hàng**: lọc theo trạng thái, cập nhật trạng thái Chờ xác nhận → Đã xác nhận → Đang giao → Hoàn thành; **hủy đơn sẽ hoàn lại tồn kho**.
 
 ---
 
@@ -166,6 +193,12 @@ Mở DBeaver $\rightarrow$ New Database Connection $\rightarrow$ PostgreSQL:
 * **Username:** `ecommerce_user`
 * **Password:** `ecommerce_secret`
 
-**Tài khoản mẫu đã tạo sẵn:**
-* **Tên đăng nhập:** `auramall_user` hoặc `user@auramall.vn` hoặc `0969795794`
-* **Mật khẩu:** `Password123`
+**Tài khoản mẫu đã tạo sẵn (mật khẩu đều là `Password123`):**
+
+| Vai trò | Tên đăng nhập | Email |
+|---------|---------------|-------|
+| Người mua | `auramall_user` | `user@auramall.vn` |
+| Người bán | `auramall_seller` | `seller@auramall.vn` |
+| Quản trị viên | `auramall_admin` | `admin@auramall.vn` |
+
+Có thể đăng nhập bằng tên đăng nhập, email hoặc số điện thoại. Nên đổi mật khẩu các tài khoản này khi triển khai thật.
