@@ -84,7 +84,7 @@ module.exports = {
     { name: 'Sản phẩm', description: 'Luồng nghiệp vụ 1: đọc danh mục sản phẩm' },
     { name: 'Kênh người bán', description: 'Quyền seller hoặc admin: đăng bán, sửa, xóa sản phẩm, xem đơn của shop' },
     { name: 'Đơn hàng', description: 'Luồng nghiệp vụ 2: đặt hàng, trừ kho nguyên tử' },
-    { name: 'Người dùng', description: 'Hồ sơ cá nhân, ảnh đại diện, sổ địa chỉ (cần đăng nhập)' },
+    { name: 'Người dùng', description: 'Hồ sơ cá nhân, ảnh đại diện (mọi tài khoản); sổ địa chỉ (chỉ người mua)' },
     { name: 'Quản trị', description: 'Chỉ admin: thống kê, phân quyền người dùng, quản lý đơn hàng' },
   ],
   components: {
@@ -751,18 +751,20 @@ module.exports = {
         responses: {
           201: { description: 'Tạo đơn thành công', content: json(ref('OrderCreated')) },
           400: fail('Dữ liệu đơn hàng sai', 'Dữ liệu đơn hàng không hợp lệ, cần ít nhất 1 sản phẩm.'),
+          403: fail('Token của người bán / quản trị', 'Chỉ tài khoản người mua mới đặt hàng được.'),
           404: fail('Sản phẩm không tồn tại', 'Không tìm thấy sản phẩm có ID 999.'),
           409: fail('Hết hàng', 'rất tiếc, sản phẩm vừa hết hàng do số lượng có hạn!'),
         },
       },
       get: {
         tags: ['Đơn hàng'],
-        summary: 'Đơn mua của tôi (50 đơn mới nhất)',
+        summary: 'Đơn mua của tôi, 50 đơn mới nhất (chỉ người mua)',
         description: 'Chỉ trả đơn của người đang đăng nhập. Admin xem toàn bộ đơn tại `GET /api/admin/orders`.',
         security: BEARER,
         responses: {
           200: success('Danh sách đơn hàng', { type: 'array', items: ref('Order') }, { total: { type: 'integer' } }),
           401: UNAUTHORIZED,
+          403: FORBIDDEN,
         },
       },
     },
@@ -886,6 +888,73 @@ module.exports = {
         responses: {
           200: success('Đã đặt mặc định', ref('Address'), { message: { type: 'string' } }),
           404: fail('Không có địa chỉ', 'Không tìm thấy địa chỉ.'),
+        },
+      },
+    },
+    '/api/seller/revenue': {
+      get: {
+        tags: ['Kênh người bán'],
+        summary: 'Doanh thu theo sản phẩm (seller: sản phẩm của mình, admin: toàn sàn)',
+        description:
+          'Tính trên đơn hàng thực tế, không tính đơn đã hủy. `pendingRevenue` = đơn chờ xác nhận / đã xác nhận / đang giao. ' +
+          'Admin nhận thêm sản phẩm của mọi người bán (`seller_username` null = hàng AuraMall).',
+        security: BEARER,
+        parameters: [
+          {
+            name: 'days',
+            in: 'query',
+            required: false,
+            description: 'Chỉ tính đơn trong N ngày gần nhất',
+            schema: { type: 'integer', minimum: 1, maximum: 3650 },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Tổng hợp và doanh thu từng sản phẩm (doanh thu cao nhất trước)',
+            content: json({
+              type: 'object',
+              properties: {
+                status: { type: 'string', example: 'success' },
+                scope: { type: 'string', enum: ['seller', 'all'] },
+                days: { type: 'integer', nullable: true },
+                summary: {
+                  type: 'object',
+                  properties: {
+                    revenue: { type: 'number' },
+                    completedRevenue: { type: 'number' },
+                    pendingRevenue: { type: 'number' },
+                    orders: { type: 'integer' },
+                    cancelledOrders: { type: 'integer' },
+                    unitsSold: { type: 'integer' },
+                    products: { type: 'integer' },
+                    productsWithSales: { type: 'integer' },
+                  },
+                },
+                data: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'integer' },
+                      name: { type: 'string' },
+                      image_url: { type: 'string', nullable: true },
+                      price: { type: 'number' },
+                      stock: { type: 'integer' },
+                      category_name: { type: 'string', nullable: true },
+                      seller_username: { type: 'string', nullable: true },
+                      orders: { type: 'integer' },
+                      units_sold: { type: 'integer' },
+                      revenue: { type: 'number' },
+                      completed_revenue: { type: 'number' },
+                    },
+                  },
+                },
+              },
+            }),
+          },
+          400: fail('days sai', 'days phải là số nguyên từ 1 đến 3650'),
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
         },
       },
     },

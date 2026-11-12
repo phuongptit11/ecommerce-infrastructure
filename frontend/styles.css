@@ -4366,6 +4366,54 @@ select.input {
   text-align: right;
 }
 
+/* Trang chi tiết với tài khoản người bán / quản trị: thay nút mua bằng ghi chú */
+.role-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 24px;
+  padding: 14px 16px;
+  background: var(--mist);
+  border-left: 2px solid var(--gold);
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.role-note .icon {
+  flex: none;
+  color: var(--gold);
+  margin-top: 1px;
+}
+
+/* Doanh thu: tỷ trọng doanh thu của từng sản phẩm */
+.share {
+  display: grid;
+  gap: 5px;
+  width: 64px;
+}
+
+.table td.num {
+  white-space: nowrap;
+}
+
+.share-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.share-bar span {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+
+.table td .share small {
+  margin: 0;
+  order: -1; /* số % nằm trên thanh */
+}
+
 /* Quản lý ảnh sản phẩm: lưới ảnh + ô tải ảnh từ máy (kéo thả) + thêm link */
 .img-manager {
   display: grid;

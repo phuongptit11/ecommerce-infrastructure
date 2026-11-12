@@ -81,14 +81,20 @@ Giao diện lấy cảm hứng từ phong cách trang Lexus: tông đen / than /
 * Ứng dụng một trang (`frontend/index.html`, `app.js`, `styles.css`), định tuyến bằng hash: `#/`, `#/products`, `#/product/:id`, `#/cart`, `#/checkout`, `#/login`, `#/register`, `#/account/:tab`, `#/sell`, `#/admin/:tab` nên nút Back/F5 hoạt động bình thường.
 * **Phân quyền 3 vai trò** (kiểm tra ở cả backend lẫn giao diện):
 
-  | Vai trò | Được làm |
-  |---------|----------|
-  | Khách | Xem trang chủ, danh sách sản phẩm, giỏ hàng; phải đăng nhập mới xem chi tiết sản phẩm và thanh toán |
-  | Người mua (`user`) | Xem chi tiết, mua hàng, hồ sơ, đổi mật khẩu, sổ địa chỉ, đơn mua |
-  | Người bán (`seller`) | Như người mua + kênh người bán: đăng/sửa/xóa sản phẩm của mình, xem đơn hàng của shop |
-  | Quản trị (`admin`) | Mọi quyền + trang quản trị: thống kê, phân quyền người dùng, quản lý mọi sản phẩm và đơn hàng |
+  | Chức năng | Khách | Người mua (`user`) | Người bán (`seller`) | Quản trị (`admin`) |
+  |-----------|:-----:|:------------------:|:--------------------:|:------------------:|
+  | Xem trang chủ, danh sách, tìm kiếm | ✓ | ✓ | ✓ | ✓ |
+  | Xem chi tiết sản phẩm | đăng nhập | ✓ | ✓ | ✓ |
+  | Giỏ hàng | ✓ (giỏ tạm) | ✓ | – | – |
+  | Thanh toán, đơn mua, sổ địa chỉ | – | ✓ | – | – |
+  | Hồ sơ, ảnh đại diện, đổi mật khẩu | – | ✓ | ✓ | ✓ |
+  | Đăng bán, sửa/xóa sản phẩm | – | – | sản phẩm của mình | mọi sản phẩm |
+  | Doanh thu theo sản phẩm | – | – | sản phẩm của mình | toàn sàn (kèm người bán) |
+  | Đơn hàng | đơn của mình | – | đơn có sản phẩm của shop | mọi đơn, đổi trạng thái |
+  | Người dùng & phân quyền, thống kê | – | – | – | ✓ |
 
-  Menu và liên kết tự ẩn/hiện theo vai trò; vào trang không đủ quyền sẽ hiện thông báo "Không có quyền truy cập".
+  Người bán và quản trị **không mua hàng** (backend trả `403` khi đặt hàng, xem đơn mua, sổ địa chỉ). Menu, nút "Thêm vào giỏ / Mua ngay" và biểu tượng giỏ hàng tự ẩn/hiện theo vai trò; vào trang không đủ quyền sẽ hiện thông báo "Không có quyền truy cập" kèm đường dẫn tới trang đúng với vai trò.
+* **Giỏ hàng lưu riêng từng tài khoản** trên trình duyệt (`auramall_cart:u<id>`, khách: `auramall_cart:guest`): đăng xuất hay tạo tài khoản mới sẽ không thấy giỏ của người trước. Khách thêm hàng rồi mới đăng nhập/đăng ký tài khoản người mua thì giỏ tạm được gộp vào giỏ của tài khoản đó.
 * Hiển thị tốt trên điện thoại (menu và bộ lọc dạng ngăn kéo), tôn trọng chế độ giảm chuyển động của hệ điều hành.
 
 Hệ thống gồm 8 phân hệ màn hình chuẩn TMĐT:
@@ -163,8 +169,9 @@ Hệ thống gồm 8 phân hệ màn hình chuẩn TMĐT:
 * **Hình ảnh sản phẩm** (tối đa 8, ảnh đầu tiên là ảnh chính): **tải ảnh từ máy** (chọn nhiều ảnh cùng lúc, kéo thả từ thư mục hoặc Ctrl+V ảnh chụp màn hình) hoặc dán link http(s). Ảnh JPG/PNG/WEBP tối đa 5MB, ảnh lớn được trình duyệt tự thu nhỏ còn cạnh dài 1600px trước khi gửi. Đổi thứ tự, đặt ảnh chính, xóa ảnh ngay trên lưới ảnh.
   * Ảnh lưu trong PostgreSQL (bảng `uploaded_images`) nên mọi bản sao backend khi scale đều đọc được và được sao lưu cùng `scripts/backup.sh`; ảnh tải lên mà không sản phẩm nào dùng sẽ tự xóa sau 1 ngày.
 * Tab "Sản phẩm của tôi": danh sách sản phẩm đã đăng, sửa, xóa (sản phẩm đã có đơn hàng thì không xóa được, chỉ đặt tồn kho về 0).
+* Tab "Doanh thu": doanh thu, đã hoàn thành, đang xử lý, số sản phẩm đã bán (tính trên đơn thật, không tính đơn hủy), lọc 7/30/90 ngày; bảng từng sản phẩm với số lượng bán, số đơn, doanh thu và tỷ trọng. Quản trị viên xem bảng tương tự cho toàn sàn tại `#/admin/revenue`.
 * Tab "Đơn hàng của shop": các đơn có sản phẩm của shop (người nhận, địa chỉ giao, trạng thái) kèm số đơn, số sản phẩm đã bán và doanh thu.
-* API: `POST/PUT/DELETE /api/products`, `POST /api/uploads/images`, `GET /api/user/products`, `GET /api/seller/orders`; người mua gọi sẽ bị từ chối (403), người bán chỉ sửa/xóa được sản phẩm của mình.
+* API: `POST/PUT/DELETE /api/products`, `POST /api/uploads/images`, `GET /api/user/products`, `GET /api/seller/revenue`, `GET /api/seller/orders`; người mua gọi sẽ bị từ chối (403), người bán chỉ sửa/xóa được sản phẩm của mình.
 
 ### 8. Quản Trị Hệ Thống (chỉ quản trị viên, `#/admin`)
 * **Tổng quan**: doanh thu (không tính đơn hủy), số đơn theo trạng thái, số sản phẩm/hết hàng, số người dùng theo quyền, đơn hàng mới nhất.

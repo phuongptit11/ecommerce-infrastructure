@@ -19,8 +19,10 @@ Tài liệu quy định chi tiết cấu trúc Request/Response giữa Frontend 
 |---------|--------|----------|
 | Khách (chưa đăng nhập) | — | Xem danh sách sản phẩm, danh mục; tạo đơn kiểu k6 (đơn khách vãng lai) |
 | Người mua | `user` | Hồ sơ, đổi mật khẩu, sổ địa chỉ, đặt hàng, xem đơn mua của mình |
-| Người bán | `seller` | Như người mua + đăng/sửa/xóa sản phẩm của mình, xem đơn hàng có sản phẩm của shop |
-| Quản trị | `admin` | Mọi quyền + thống kê, phân quyền người dùng, quản lý mọi sản phẩm và đơn hàng |
+| Người bán | `seller` | Hồ sơ, đổi mật khẩu; đăng/sửa/xóa sản phẩm của mình, tải ảnh, xem doanh thu và đơn hàng có sản phẩm của shop. **Không mua hàng** |
+| Quản trị | `admin` | Hồ sơ, đổi mật khẩu; xem toàn bộ: thống kê, doanh thu toàn sàn, phân quyền người dùng, quản lý mọi sản phẩm và đơn hàng. **Không mua hàng** |
+
+- Chỉ người mua (`user`) gọi được `GET /api/orders`, `/api/user/addresses*`; `POST /api/orders` có token của người bán/quản trị trả `403` ("Chỉ tài khoản người mua mới đặt hàng được."). Không gửi token thì vẫn là đơn khách vãng lai (k6 loadtest không đổi).
 
 - Đăng ký chỉ chọn được `user` hoặc `seller`; quyền `admin` do admin khác cấp qua `PATCH /api/admin/users/:id/role`.
 - Backend đọc vai trò từ CSDL ở mỗi request cần quyền, nên đổi quyền có hiệu lực ngay, không cần đăng nhập lại.
@@ -384,6 +386,29 @@ Xóa sản phẩm do mình đăng bán.
 Danh sách sản phẩm do người dùng hiện tại đăng bán, mới nhất trước.
 
 - **Response `200 OK`**: `{ "status": "success", "total": 1, "data": [ { ...sản phẩm } ] }`
+
+### `GET /api/seller/revenue`
+Doanh thu theo từng sản phẩm. **Người bán**: sản phẩm của mình; **quản trị**: toàn sàn (kèm `seller_username`, `null` = hàng AuraMall). Tính trên đơn hàng thực tế (`order_items`, đơn cũ KT1 không có `order_items` thì lấy theo đơn), không tính đơn `CANCELLED`.
+
+- **Query**: `days` (không bắt buộc, 1 - 3650): chỉ tính đơn trong N ngày gần nhất.
+- **Response `200 OK`**:
+```json
+{
+  "status": "success",
+  "scope": "seller",
+  "days": 30,
+  "summary": {
+    "revenue": 1197000, "completedRevenue": 299000, "pendingRevenue": 898000,
+    "orders": 3, "cancelledOrders": 1, "unitsSold": 4, "products": 4, "productsWithSales": 2
+  },
+  "data": [
+    { "id": 22, "name": "Áo Polo Nam AuraMall Classic Cotton", "image_url": "/images/products/ao-polo.jpg", "price": 299000,
+      "stock": 116, "category_name": "Thời trang & Quần áo", "seller_username": "auramall_seller",
+      "orders": 3, "units_sold": 4, "revenue": 1196000, "completed_revenue": 299000 }
+  ]
+}
+```
+- `pendingRevenue`: đơn Chờ xác nhận / Đã xác nhận / Đang giao. Lỗi: `401`, `403` (người mua), `400` (`days` sai).
 
 ### `POST /api/uploads/images`
 Tải ảnh sản phẩm từ máy. Body là **nội dung file ảnh** (không base64, không multipart), header `Content-Type: image/jpeg | image/png | image/webp`.

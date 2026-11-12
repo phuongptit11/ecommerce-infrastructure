@@ -14,7 +14,8 @@
 // 1. CẤU HÌNH & TRẠNG THÁI
 // ==========================================
 const STORAGE = {
-  token: 'auramall_token', // giữ tên khóa cũ để không mất phiên đăng nhập/giỏ hàng của bản trước
+  token: 'auramall_token', // giữ tên khóa cũ để không mất phiên đăng nhập của bản trước
+  // Giỏ hàng lưu riêng từng tài khoản: auramall_cart:u5, khách chưa đăng nhập: auramall_cart:guest
   cart: 'auramall_cart',
   selected: 'auramall_cart_selected',
 };
@@ -49,13 +50,15 @@ const ORDER_STATUS = {
 const PAYMENT_LABEL = { COD: 'Thanh toán khi nhận hàng', BANK_TRANSFER: 'Chuyển khoản ngân hàng' };
 // Phân quyền: guest (chưa đăng nhập), user (người mua), seller (người bán), admin (quản trị)
 const ROLE_LABEL = { admin: 'Quản trị viên', seller: 'Người bán', user: 'Người mua' };
-const SELLER_ROLES = ['seller', 'admin'];
+const SELLER_ROLES = ['seller', 'admin']; // trang đăng/sửa sản phẩm (quản trị sửa được mọi sản phẩm)
+const BUYER_ROLES = ['guest', 'user']; // giỏ hàng; đặt hàng thì phải đăng nhập tài khoản người mua
 
 const state = {
   token: storageGet(localStorage, STORAGE.token),
   user: null,
-  cart: loadCart(),
-  selected: new Set(loadSelected()),
+  cartOwner: null, // 'guest' hoặc 'u<id>': giỏ hàng đang dùng là của ai
+  cart: [],
+  selected: new Set(),
   categories: [],
   products: null, // tối đa 100 sản phẩm phổ biến, dùng cho trang chủ & mega menu
   index: new Map(), // productId -> product: tra cứu nhanh cho nút "Thêm vào giỏ"
@@ -112,8 +115,23 @@ function readJson(area, key, fallback) {
   }
 }
 
-function loadCart() {
-  const raw = readJson(localStorage, STORAGE.cart, []);
+// Mã người dùng đọc từ phần payload của JWT (chỉ để chọn giỏ hàng, quyền vẫn do backend kiểm tra)
+function tokenUserId(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return Number.isInteger(payload.userId) ? payload.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+function cartOwnerOf(token) {
+  const id = token ? tokenUserId(token) : null;
+  return id ? `u${id}` : 'guest';
+}
+
+function loadCart(owner) {
+  const raw = readJson(localStorage, `${STORAGE.cart}:${owner}`, []);
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((it) => it && Number.isInteger(it.productId) && it.product && Number(it.quantity) > 0)
@@ -130,9 +148,41 @@ function loadCart() {
     }));
 }
 
-function loadSelected() {
-  const raw = readJson(sessionStorage, STORAGE.selected, []);
+function loadSelected(owner) {
+  const raw = readJson(sessionStorage, `${STORAGE.selected}:${owner}`, []);
   return Array.isArray(raw) ? raw.filter(Number.isInteger) : [];
+}
+
+// Bản cũ lưu một giỏ chung cho mọi tài khoản (tạo tài khoản mới vẫn thấy giỏ của người trước).
+// Chuyển giỏ cũ cho tài khoản đang đăng nhập (hoặc khách) rồi xóa khóa chung.
+function migrateSharedCart() {
+  const legacy = storageGet(localStorage, STORAGE.cart);
+  if (legacy === null) return;
+  const owner = cartOwnerOf(state.token);
+  if (!loadCart(owner).length) storageSet(localStorage, `${STORAGE.cart}:${owner}`, legacy);
+  storageRemove(localStorage, STORAGE.cart);
+  storageRemove(sessionStorage, STORAGE.selected);
+}
+
+// Nạp giỏ hàng của tài khoản mới khi đăng nhập / đăng ký / đăng xuất.
+// Khách thêm hàng rồi mới đăng nhập tài khoản người mua: gộp giỏ tạm của khách vào giỏ tài khoản.
+function switchCart(owner, role) {
+  if (owner === state.cartOwner) return;
+  const guestItems = state.cartOwner === 'guest' ? state.cart : [];
+  state.cartOwner = owner;
+  state.cart = loadCart(owner);
+  state.selected = new Set(loadSelected(owner));
+  if (owner !== 'guest' && role === 'user' && guestItems.length) {
+    for (const item of guestItems) {
+      const mine = state.cart.find((it) => it.productId === item.productId);
+      if (mine) mine.quantity = Math.min(mine.quantity + item.quantity, MAX_ORDER_QTY);
+      else state.cart.push(item);
+      state.selected.add(item.productId);
+    }
+    storageRemove(localStorage, `${STORAGE.cart}:guest`);
+    storageRemove(sessionStorage, `${STORAGE.selected}:guest`);
+  }
+  saveCart();
 }
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -297,6 +347,7 @@ function setSession(token, user = null) {
   state.user = user;
   if (token) storageSet(localStorage, STORAGE.token, token);
   else storageRemove(localStorage, STORAGE.token);
+  switchCart(cartOwnerOf(token), user?.role);
   renderAccountMenu();
 }
 
@@ -546,18 +597,20 @@ function scrollToEl(el, offset = 24) {
 // 7. ĐỊNH TUYẾN (HASH ROUTER)
 // ==========================================
 // auth: phải đăng nhập; roles: chỉ các vai trò được liệt kê
+// Phân quyền: người mua mua hàng; người bán chỉ đăng bán + xem doanh thu/đơn của shop; quản trị xem toàn bộ
 const ROUTES = [
   { re: /^\/$/, view: 'home' },
   { re: /^\/products$/, view: 'catalog' },
   { re: /^\/product\/(\d+)$/, view: 'product', auth: true },
-  { re: /^\/cart$/, view: 'cart' },
-  { re: /^\/checkout$/, view: 'checkout', auth: true },
+  { re: /^\/cart$/, view: 'cart', roles: BUYER_ROLES },
+  { re: /^\/checkout$/, view: 'checkout', auth: true, roles: ['user'] },
   { re: /^\/login$/, view: 'login', group: 'auth' },
   { re: /^\/register$/, view: 'register', group: 'auth' },
-  { re: /^\/account(?:\/(profile|password|addresses|orders))?$/, view: 'account', auth: true },
-  { re: /^\/account\/(products|sales)$/, view: 'account', auth: true, roles: SELLER_ROLES },
+  { re: /^\/account(?:\/(profile|password))?$/, view: 'account', auth: true },
+  { re: /^\/account\/(addresses|orders)$/, view: 'account', auth: true, roles: ['user'] },
+  { re: /^\/account\/(products|revenue|sales)$/, view: 'account', auth: true, roles: ['seller'] },
   { re: /^\/sell(?:\/(\d+))?$/, view: 'sell', auth: true, roles: SELLER_ROLES },
-  { re: /^\/admin(?:\/(overview|users|products|orders))?$/, view: 'admin', auth: true, roles: ['admin'] },
+  { re: /^\/admin(?:\/(overview|users|products|revenue|orders))?$/, view: 'admin', auth: true, roles: ['admin'] },
 ];
 
 function parseHash() {
@@ -827,7 +880,7 @@ function productCard(p, { dark = false, i = 0, quick = true, sold = false, revea
       <div class="card-visual">
         ${link ? `<a class="card-media" href="${url}" tabindex="-1">${media}</a>` : `<div class="card-media">${media}</div>`}
         ${
-          quick && !out
+          quick && !out && canBuy()
             ? `<button class="btn btn--solid btn--sm card-quick" data-action="quick-add" data-id="${p.id}">${icon('bag', 'icon-sm')}Thêm vào giỏ</button>`
             : ''
         }
@@ -904,17 +957,31 @@ function renderNotFound(message = 'Trang bạn tìm không tồn tại hoặc đ
   )}</section>`;
 }
 
+// Thông báo theo trang được yêu cầu và vai trò hiện tại, kèm lối đi tới trang phù hợp với vai trò đó
 function renderForbidden(roles) {
-  const sellerPage = roles.includes('seller');
-  const message = sellerPage
-    ? `Trang này dành cho tài khoản người bán. Tài khoản của bạn đang là ${ROLE_LABEL[currentRole()] || 'khách'}, hãy liên hệ quản trị viên để được nâng cấp quyền người bán.`
-    : 'Trang này chỉ dành cho quản trị viên hệ thống.';
-  $('#view').innerHTML = `<section class="container">${emptyState(
-    'lock',
-    'Không có quyền truy cập',
-    message,
-    '<a class="btn btn--solid" href="#/">Về trang chủ</a>'
-  )}</section>`;
+  const role = currentRole();
+  let message = 'Trang này chỉ dành cho quản trị viên hệ thống.';
+  let action = '<a class="btn btn--solid" href="#/">Về trang chủ</a>';
+  if (roles.includes('user')) {
+    // Giỏ hàng, thanh toán, đơn mua, sổ địa chỉ
+    if (role === 'seller') {
+      message = 'Tài khoản người bán không mua hàng. Hãy dùng một tài khoản người mua để mua sắm.';
+      action = '<a class="btn btn--solid" href="#/account/revenue">Xem doanh thu của shop</a>';
+    } else if (role === 'admin') {
+      message = 'Tài khoản quản trị không mua hàng. Đơn hàng của mọi khách xem tại trang Quản trị.';
+      action = '<a class="btn btn--solid" href="#/admin/orders">Xem mọi đơn hàng</a>';
+    } else {
+      message = 'Trang này dành cho tài khoản người mua.';
+    }
+  } else if (roles.includes('seller')) {
+    if (role === 'admin') {
+      message = 'Quản trị viên xem sản phẩm, doanh thu và đơn hàng của mọi người bán tại trang Quản trị.';
+      action = '<a class="btn btn--solid" href="#/admin/revenue">Xem doanh thu toàn sàn</a>';
+    } else {
+      message = `Trang này dành cho tài khoản người bán. Tài khoản của bạn đang là ${ROLE_LABEL[role] || 'khách'}, hãy liên hệ quản trị viên để được nâng cấp quyền người bán.`;
+    }
+  }
+  $('#view').innerHTML = `<section class="container">${emptyState('lock', 'Không có quyền truy cập', message, action)}</section>`;
 }
 
 function renderError(err) {
@@ -930,13 +997,23 @@ function renderError(err) {
 // 10. GIỎ HÀNG (lưu ở trình duyệt như bản của nhóm)
 // ==========================================
 function saveCart() {
+  const owner = state.cartOwner || 'guest';
   storageSet(
     localStorage,
-    STORAGE.cart,
+    `${STORAGE.cart}:${owner}`,
     JSON.stringify(state.cart.map(({ productId, product, quantity }) => ({ productId, product, quantity })))
   );
-  storageSet(sessionStorage, STORAGE.selected, JSON.stringify([...state.selected]));
+  storageSet(sessionStorage, `${STORAGE.selected}:${owner}`, JSON.stringify([...state.selected]));
   updateCartBadge();
+}
+
+// Giỏ hàng chỉ dành cho khách và người mua; người bán, quản trị không mua hàng
+const canBuy = () => can(...BUYER_ROLES);
+
+function blockNonBuyer() {
+  if (canBuy()) return false;
+  toast('Tài khoản người bán / quản trị không mua hàng. Hãy dùng tài khoản người mua.', 'error');
+  return true;
 }
 
 const cartCount = () => state.cart.reduce((sum, it) => sum + it.quantity, 0);
@@ -983,6 +1060,7 @@ function renderCartPopover() {
 }
 
 function addToCart(p, qty, { fromEl = null, silent = false } = {}) {
+  if (blockNonBuyer()) return false;
   if (!p || p.stock <= 0) {
     toast('Rất tiếc, sản phẩm đã hết hàng.', 'error');
     return false;
@@ -1011,6 +1089,7 @@ function addToCart(p, qty, { fromEl = null, silent = false } = {}) {
 
 // "Mua ngay": thêm vào giỏ rồi chỉ chọn đúng sản phẩm này để thanh toán
 function buyNow(p, qty) {
+  if (blockNonBuyer()) return;
   if (!p || p.stock <= 0) {
     toast('Rất tiếc, sản phẩm đã hết hàng.', 'error');
     return;
@@ -1122,7 +1201,7 @@ function heroHtml(items) {
               <p class="hero-price" style="--i:3">Giá từ<strong>${money(p.price)}</strong></p>
               <div class="hero-cta" style="--i:4">
                 <a class="btn btn--light" href="#/product/${p.id}">Khám phá</a>
-                ${p.stock > 0 ? `<button class="btn btn--gold" data-action="buy-now" data-id="${p.id}">Mua ngay</button>` : ''}
+                ${p.stock > 0 && canBuy() ? `<button class="btn btn--gold" data-action="buy-now" data-id="${p.id}">Mua ngay</button>` : ''}
               </div>
             </div>
           </div>`
@@ -1552,6 +1631,10 @@ async function viewProduct({ params: [id], token }) {
   const limit = maxQty(p.stock);
   const isOwner = can(...SELLER_ROLES) && p.seller_id === state.user.id;
   const canEdit = isOwner || can('admin');
+  const buyer = canBuy();
+  const viewOnlyNote = can('admin')
+    ? 'Tài khoản quản trị chỉ xem và quản lý sản phẩm, không mua hàng.'
+    : 'Bạn đang dùng tài khoản người bán nên không mua hàng. Hãy dùng tài khoản người mua để đặt hàng.';
   state.pd = { product: p, images, index: 0, qty: 1 };
 
   $('#view').innerHTML = `
@@ -1566,7 +1649,7 @@ async function viewProduct({ params: [id], token }) {
         </div>
         <div class="subnav-buy">
           <span>${money(p.price)}</span>
-          <button class="btn btn--solid btn--sm" data-action="pd-buy" ${out ? 'disabled' : ''}>Mua ngay</button>
+          ${buyer ? `<button class="btn btn--solid btn--sm" data-action="pd-buy" ${out ? 'disabled' : ''}>Mua ngay</button>` : ''}
         </div>
       </div>
     </div>
@@ -1618,11 +1701,15 @@ async function viewProduct({ params: [id], token }) {
               <span class="stock ${out ? 'is-out' : p.stock <= 10 ? 'is-low' : ''}">${out ? 'Hết hàng' : `Còn ${p.stock} sản phẩm`}</span>
             </div>
             <div class="pd-row"><span>Người bán</span><span>${p.seller_username ? esc(p.seller_username) : 'AuraMall Official'}</span></div>
-            <div class="pd-row"><span>Số lượng</span>${out ? '<span class="muted">Tạm hết hàng</span>' : qtyControl(1, limit)}</div>
-            <div class="pd-actions">
-              <button class="btn" data-action="pd-add" ${out ? 'disabled' : ''}>${icon('bag', 'icon-sm')} Thêm vào giỏ</button>
-              <button class="btn btn--solid" data-action="pd-buy" ${out ? 'disabled' : ''}>Mua ngay</button>
-            </div>
+            ${
+              buyer
+                ? `<div class="pd-row"><span>Số lượng</span>${out ? '<span class="muted">Tạm hết hàng</span>' : qtyControl(1, limit)}</div>
+                   <div class="pd-actions">
+                     <button class="btn" data-action="pd-add" ${out ? 'disabled' : ''}>${icon('bag', 'icon-sm')} Thêm vào giỏ</button>
+                     <button class="btn btn--solid" data-action="pd-buy" ${out ? 'disabled' : ''}>Mua ngay</button>
+                   </div>`
+                : `<p class="role-note">${icon('lock', 'icon-sm')}<span>${esc(viewOnlyNote)}</span></p>`
+            }
             ${
               canEdit
                 ? `<p style="margin-top: 20px"><a class="link-arrow" href="#/sell/${p.id}">${isOwner ? 'Chỉnh sửa sản phẩm của bạn' : 'Chỉnh sửa (quản trị)'} ${icon('arrow')}</a></p>`
@@ -2200,7 +2287,8 @@ function finishAuth(res, message) {
   setSession(res.token, res.user);
   loadMe();
   toast(message);
-  const fallback = res.user.role === 'seller' && !state.route.query.get('redirect') ? '/sell' : '/';
+  const home = { seller: '/sell', admin: '/admin' }[res.user.role] || '/';
+  const fallback = state.route.query.get('redirect') ? '/' : home;
   redirect(state.route.query.get('redirect') ? afterAuthPath() : fallback);
 }
 
@@ -2322,13 +2410,15 @@ async function onGoogleCredential(response) {
 // 17. TRUNG TÂM TÀI KHOẢN: HỒ SƠ, MẬT KHẨU, ĐỊA CHỈ, ĐƠN MUA; NGƯỜI BÁN: SẢN PHẨM, ĐƠN CỦA SHOP
 // ==========================================
 // [đường dẫn, icon, nhãn, quyền được xem (bỏ trống = mọi tài khoản)]
+// Quản trị viên xem sản phẩm/doanh thu/đơn hàng của mọi người tại trang Quản trị (#/admin)
 const ACCOUNT_NAV = [
   ['profile', 'user', 'Hồ sơ của tôi'],
   ['password', 'lock', 'Đổi mật khẩu'],
-  ['addresses', 'pin', 'Địa chỉ nhận hàng'],
-  ['orders', 'box', 'Đơn mua'],
-  ['products', 'store', 'Sản phẩm của tôi', SELLER_ROLES],
-  ['sales', 'doc', 'Đơn hàng của shop', SELLER_ROLES],
+  ['addresses', 'pin', 'Địa chỉ nhận hàng', ['user']],
+  ['orders', 'box', 'Đơn mua', ['user']],
+  ['products', 'store', 'Sản phẩm của tôi', ['seller']],
+  ['revenue', 'coin', 'Doanh thu', ['seller']],
+  ['sales', 'doc', 'Đơn hàng của shop', ['seller']],
 ];
 
 // Khung trang có thanh bên (dùng chung cho tài khoản và quản trị)
@@ -2352,7 +2442,7 @@ function sidePage({ crumbs, title, nav, base, tab, extraLinks = '' }) {
     </div>`;
 }
 
-async function viewAccount({ params: [tab = 'profile'], token }) {
+async function viewAccount({ params: [tab = 'profile'], query, token }) {
   await loadMe(); // lấy hồ sơ mới nhất (ngày tham gia, ảnh đại diện, quyền...)
   if (stale(token)) return;
   if (!state.user) {
@@ -2370,7 +2460,7 @@ async function viewAccount({ params: [tab = 'profile'], token }) {
       (can(...SELLER_ROLES) ? `<a href="#/sell">${icon('plus', 'icon-sm')}Đăng bán sản phẩm</a>` : '') +
       (can('admin') ? `<a href="#/admin">${icon('chart', 'icon-sm')}Quản trị hệ thống</a>` : ''),
   });
-  await ACCOUNT_TABS[tab](token);
+  await ACCOUNT_TABS[tab](token, query);
 }
 
 function panelHead(eyebrow, title, desc, action = '') {
@@ -2480,6 +2570,10 @@ const ACCOUNT_TABS = {
       }`;
   },
 
+  async revenue(token, query) {
+    await renderRevenue({ token, query, admin: false });
+  },
+
   // Đơn hàng có sản phẩm do người bán này đăng
   async sales(token) {
     const panel = $('#accountPanel');
@@ -2515,6 +2609,66 @@ const ACCOUNT_TABS = {
       }`;
   },
 };
+
+// ---------- Doanh thu theo sản phẩm: người bán (sản phẩm của mình) và quản trị (toàn sàn) ----------
+const REVENUE_RANGES = [
+  ['', 'Toàn thời gian'],
+  ['7', '7 ngày'],
+  ['30', '30 ngày'],
+  ['90', '90 ngày'],
+];
+
+async function renderRevenue({ token, query, admin }) {
+  const days = REVENUE_RANGES.some(([value]) => value && value === query?.get('days')) ? query.get('days') : '';
+  const panel = $('#accountPanel');
+  const head = admin
+    ? panelHead('Quản trị', 'Doanh thu toàn sàn', 'Doanh thu từng sản phẩm của mọi người bán; không tính đơn đã hủy.')
+    : panelHead('Kênh người bán', 'Doanh thu của shop', 'Doanh thu từng sản phẩm bạn đăng bán; không tính đơn đã hủy.');
+  panel.innerHTML = `${head}<div class="skeleton" style="height: 180px"></div>`;
+  const res = await api(`/api/seller/revenue${days ? `?days=${days}` : ''}`);
+  if (stale(token)) return;
+  const s = res.summary;
+  const rows = res.data
+    .map((p) => {
+      const share = s.revenue > 0 ? (p.revenue / s.revenue) * 100 : 0;
+      return `
+        <tr>
+          <td><div class="cell-product"><img src="${esc(imgSrc(p.image_url))}" alt="" loading="lazy"><span><a href="#/product/${p.id}">${esc(p.name)}</a><small>${esc(p.category_name || '')}</small></span></div></td>
+          ${admin ? `<td>${p.seller_username ? esc(p.seller_username) : '<span class="muted">AuraMall</span>'}</td>` : ''}
+          <td class="num">${money(p.price)}</td>
+          <td class="${p.stock <= 0 ? 'is-danger' : ''}">${p.stock}</td>
+          <td class="num">${p.units_sold}<small>${p.orders} đơn</small></td>
+          <td class="num"><strong>${money(p.revenue)}</strong>${p.completed_revenue ? `<small>Hoàn thành ${money(p.completed_revenue)}</small>` : ''}</td>
+          <td><div class="share"><span class="share-bar"><span style="width:${share.toFixed(1)}%"></span></span><small>${share.toFixed(share > 0 && share < 1 ? 1 : 0)}%</small></div></td>
+        </tr>`;
+    })
+    .join('');
+  panel.innerHTML = `
+    ${head}
+    <div class="admin-toolbar">
+      ${filterChips('days', days, REVENUE_RANGES)}
+      <span class="result-count">${s.productsWithSales}/${s.products} sản phẩm có lượt bán</span>
+    </div>
+    <div class="stat-grid">
+      ${statCard('Doanh thu', money(s.revenue), `${s.orders} đơn hàng${s.cancelledOrders ? ` · ${s.cancelledOrders} đơn đã hủy` : ''}`)}
+      ${statCard('Đã hoàn thành', money(s.completedRevenue), 'Đơn đã giao thành công')}
+      ${statCard('Đang xử lý', money(s.pendingRevenue), 'Chờ xác nhận, đã xác nhận, đang giao')}
+      ${statCard('Sản phẩm đã bán', s.unitsSold, 'Tính trên đơn hàng thực tế')}
+    </div>
+    ${
+      res.data.length
+        ? `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Sản phẩm</th>${admin ? '<th>Người bán</th>' : ''}<th>Giá bán</th><th>Tồn kho</th><th>Đã bán</th><th>Doanh thu</th><th>Tỷ trọng</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>`
+        : emptyState(
+            'store',
+            'Chưa có sản phẩm',
+            admin ? 'Sàn chưa có sản phẩm nào.' : 'Đăng sản phẩm đầu tiên để bắt đầu bán hàng và theo dõi doanh thu.',
+            admin ? '' : '<a class="btn btn--solid" href="#/sell">Đăng bán sản phẩm</a>'
+          )
+    }`;
+}
 
 function statCard(label, value, note = '') {
   return `<div class="stat"><span class="label">${esc(label)}</span><strong>${esc(String(value))}</strong>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
@@ -2755,8 +2909,10 @@ async function viewSell({ params: [id], token }) {
   const images = [product?.image_url, ...(product?.thumbnails || [])].filter(Boolean);
   state.sell = { images: [...new Set(images)].slice(0, MAX_PRODUCT_IMAGES), uploading: 0 };
   const title = product ? 'Chỉnh sửa sản phẩm' : 'Đăng bán sản phẩm';
+  // Quản trị viên quản lý sản phẩm tại trang Quản trị, người bán tại "Sản phẩm của tôi"
+  const listUrl = can('admin') ? '#/admin/products' : '#/account/products';
   $('#view').innerHTML = `
-    ${pageHead([['Trang chủ', '#/'], ['Kênh người bán', '#/account/products'], [title]], title, 'Thông tin rõ ràng và hình ảnh đẹp giúp sản phẩm bán chạy hơn.')}
+    ${pageHead([['Trang chủ', '#/'], [can('admin') ? 'Quản trị' : 'Kênh người bán', listUrl], [title]], title, 'Thông tin rõ ràng và hình ảnh đẹp giúp sản phẩm bán chạy hơn.')}
     <div class="container sell">
       <form data-form="product" data-id="${product?.id ?? ''}" novalidate>
         <div class="form-grid">
@@ -2806,7 +2962,7 @@ async function viewSell({ params: [id], token }) {
         </div>
         <div class="form-actions">
           <button class="btn btn--solid" type="submit">${product ? 'Lưu thay đổi' : 'Đăng bán'}</button>
-          <a class="btn" href="${product ? `#/product/${product.id}` : '#/account/products'}">Hủy</a>
+          <a class="btn" href="${product ? `#/product/${product.id}` : listUrl}">Hủy</a>
         </div>
       </form>
       <aside class="sell-preview">
@@ -3064,6 +3220,7 @@ const ADMIN_NAV = [
   ['overview', 'chart', 'Tổng quan'],
   ['users', 'user', 'Người dùng & phân quyền'],
   ['products', 'store', 'Sản phẩm'],
+  ['revenue', 'coin', 'Doanh thu'],
   ['orders', 'box', 'Đơn hàng'],
 ];
 
@@ -3232,6 +3389,10 @@ const ADMIN_TABS = {
           .join('')}</tbody>
       </table></div>
       ${paginationHtml(res.pagination)}`;
+  },
+
+  async revenue({ query, token }) {
+    await renderRevenue({ token, query, admin: true });
   },
 
   async orders({ query, token }) {
@@ -3628,7 +3789,8 @@ async function checkHealth() {
 
 async function boot() {
   bindEvents();
-  updateCartBadge();
+  migrateSharedCart();
+  switchCart(cartOwnerOf(state.token)); // cũng vẽ lại số trên biểu tượng giỏ hàng
   renderAccountMenu();
   checkHealth();
   setInterval(checkHealth, 15000);

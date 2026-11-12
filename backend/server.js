@@ -1014,6 +1014,16 @@ app.post('/api/orders', async (req, res) => {
   const buyerNote = req.body.note || req.body.buyerNote || '';
   // Không có token (k6 loadtest): đơn của khách vãng lai, user_id = NULL, không gán vào tài khoản nào
   const userId = req.user ? req.user.userId : null;
+  // Có đăng nhập thì chỉ tài khoản người mua được đặt hàng (người bán, quản trị không mua hàng)
+  if (userId) {
+    const account = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+    if (account.rowCount === 0) {
+      throw new HttpError(401, 'Tài khoản không còn tồn tại, vui lòng đăng nhập lại.');
+    }
+    if (account.rows[0].role !== 'user') {
+      throw new HttpError(403, 'Chỉ tài khoản người mua mới đặt hàng được.');
+    }
+  }
 
   const client = await pool.connect();
 
@@ -1132,7 +1142,7 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // Tra cứu danh sách đơn hàng của chính người đang đăng nhập (admin xem toàn bộ tại /api/admin/orders)
-app.get('/api/orders', requireAuth, async (req, res) => {
+app.get('/api/orders', requireRole('user'), async (req, res) => {
   const userId = req.user.userId;
 
   let querySql = `
@@ -1328,7 +1338,7 @@ app.post('/api/user/avatar', requireAuth, async (req, res) => {
 });
 
 // Lấy danh sách địa chỉ nhận hàng
-app.get('/api/user/addresses', requireAuth, async (req, res) => {
+app.get('/api/user/addresses', requireRole('user'), async (req, res) => {
   const userId = req.user.userId;
 
   const result = await pool.query(
@@ -1347,7 +1357,7 @@ app.get('/api/user/addresses', requireAuth, async (req, res) => {
 });
 
 // Thêm địa chỉ nhận hàng mới
-app.post('/api/user/addresses', requireAuth, async (req, res) => {
+app.post('/api/user/addresses', requireRole('user'), async (req, res) => {
   const userId = req.user.userId;
   const { recipientName, phone, detailAddress, isDefault } = req.body || {};
 
@@ -1396,7 +1406,7 @@ app.post('/api/user/addresses', requireAuth, async (req, res) => {
 });
 
 // Sửa địa chỉ nhận hàng (PUT /api/user/addresses/:id)
-app.put('/api/user/addresses/:id', requireAuth, async (req, res) => {
+app.put('/api/user/addresses/:id', requireRole('user'), async (req, res) => {
   const userId = req.user.userId;
   const addressId = parseId(req.params.id, 'addressId');
   const { recipientName, phone, detailAddress, isDefault } = req.body || {};
@@ -1442,7 +1452,7 @@ app.put('/api/user/addresses/:id', requireAuth, async (req, res) => {
 
 // Xóa địa chỉ nhận hàng (DELETE /api/user/addresses/:id)
 // Quy tắc nghiệp vụ (PDF Page 4): Nếu chỉ có duy nhất 1 địa chỉ mặc định, không được xóa và báo "Cần ít nhất 1 địa chỉ nhận hàng"
-app.delete('/api/user/addresses/:id', requireAuth, async (req, res) => {
+app.delete('/api/user/addresses/:id', requireRole('user'), async (req, res) => {
   const userId = req.user.userId;
   const addressId = parseId(req.params.id, 'addressId');
 
@@ -1496,7 +1506,7 @@ app.delete('/api/user/addresses/:id', requireAuth, async (req, res) => {
 });
 
 // Đặt làm địa chỉ mặc định (PATCH /api/user/addresses/:id/default)
-app.patch('/api/user/addresses/:id/default', requireAuth, async (req, res) => {
+app.patch('/api/user/addresses/:id/default', requireRole('user'), async (req, res) => {
   const userId = req.user.userId;
   const addressId = parseId(req.params.id, 'addressId');
 
@@ -1564,6 +1574,82 @@ app.get('/api/seller/orders', requireRole('seller', 'admin'), async (req, res) =
 
   const { orders, items_sold: itemsSold, revenue } = summary.rows[0];
   res.json({ status: 'success', total: items.rowCount, summary: { orders, itemsSold, revenue }, data: items.rows });
+});
+
+// Doanh thu theo sản phẩm: người bán xem sản phẩm của mình, quản trị xem toàn sàn (kèm người bán).
+// Tính trên đơn hàng thật (order_items), không tính đơn đã hủy; days = 7/30/90... để lọc theo thời gian.
+// Đơn cũ từ KT1 không có order_items thì lấy product_id/quantity/total_price của chính đơn đó.
+const ORDER_LINES_SQL = `
+  SELECT oi.order_id, oi.product_id, oi.quantity, oi.subtotal FROM order_items oi
+  UNION ALL
+  SELECT o.id, o.product_id, o.quantity, o.total_price FROM orders o
+  WHERE o.product_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id)`;
+
+app.get('/api/seller/revenue', requireRole('seller', 'admin'), async (req, res) => {
+  const days = req.query.days === undefined || req.query.days === '' ? null : parseInteger(req.query.days, 'days', 1, 3650);
+  const sellerId = req.user.role === 'admin' ? null : req.user.userId; // null = toàn sàn
+  const params = [sellerId, days];
+  const lines = `
+    WITH lines AS (${ORDER_LINES_SQL})
+    SELECT l.product_id, l.quantity, l.subtotal, o.id AS order_id, o.status
+    FROM lines l
+    JOIN orders o ON o.id = l.order_id
+    JOIN products p ON p.id = l.product_id
+    WHERE ($1::int IS NULL OR p.seller_id = $1)
+      AND ($2::int IS NULL OR o.created_at >= NOW() - make_interval(days => $2::int))`;
+
+  const [products, summary] = await Promise.all([
+    pool.query(
+      `WITH sales AS (
+         SELECT product_id,
+                COUNT(DISTINCT order_id) FILTER (WHERE status <> 'CANCELLED') AS orders,
+                COALESCE(SUM(quantity) FILTER (WHERE status <> 'CANCELLED'), 0) AS units,
+                COALESCE(SUM(subtotal) FILTER (WHERE status <> 'CANCELLED'), 0) AS revenue,
+                COALESCE(SUM(subtotal) FILTER (WHERE status = 'COMPLETED'), 0) AS completed_revenue
+         FROM (${lines}) x
+         GROUP BY product_id
+       )
+       SELECT p.id, p.name, p.image_url, p.price, p.stock, c.name AS category_name, s.username AS seller_username,
+              COALESCE(sa.orders, 0) AS orders, COALESCE(sa.units, 0) AS units_sold,
+              COALESCE(sa.revenue, 0) AS revenue, COALESCE(sa.completed_revenue, 0) AS completed_revenue
+       FROM products p
+       LEFT JOIN sales sa ON sa.product_id = p.id
+       LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN users s ON s.id = p.seller_id
+       WHERE ($1::int IS NULL OR p.seller_id = $1)
+       ORDER BY revenue DESC, units_sold DESC, p.id DESC
+       LIMIT 500`,
+      params
+    ),
+    pool.query(
+      `SELECT COUNT(DISTINCT order_id) FILTER (WHERE status <> 'CANCELLED') AS orders,
+              COUNT(DISTINCT order_id) FILTER (WHERE status = 'CANCELLED') AS cancelled_orders,
+              COALESCE(SUM(quantity) FILTER (WHERE status <> 'CANCELLED'), 0) AS units_sold,
+              COALESCE(SUM(subtotal) FILTER (WHERE status <> 'CANCELLED'), 0) AS revenue,
+              COALESCE(SUM(subtotal) FILTER (WHERE status = 'COMPLETED'), 0) AS completed_revenue,
+              COALESCE(SUM(subtotal) FILTER (WHERE status IN ('CREATED', 'CONFIRMED', 'DELIVERING')), 0) AS pending_revenue
+       FROM (${lines}) x`,
+      params
+    ),
+  ]);
+
+  const s = summary.rows[0];
+  res.json({
+    status: 'success',
+    scope: sellerId === null ? 'all' : 'seller',
+    days,
+    summary: {
+      revenue: s.revenue,
+      completedRevenue: s.completed_revenue,
+      pendingRevenue: s.pending_revenue,
+      orders: s.orders,
+      cancelledOrders: s.cancelled_orders,
+      unitsSold: s.units_sold,
+      products: products.rowCount,
+      productsWithSales: products.rows.filter((row) => row.units_sold > 0).length,
+    },
+    data: products.rows,
+  });
 });
 
 // ==========================================
