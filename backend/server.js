@@ -19,6 +19,8 @@ const MAX_ORDER_QUANTITY = 100;
 const MAX_PRICE = 9999999999; // giới hạn NUMERIC(12, 2)
 const MAX_STOCK = 1000000;
 const MAX_PRODUCT_IMAGES = 8;
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // ảnh sản phẩm tải lên tối đa 5MB (Nginx cho phép 6MB ở /api/uploads/)
+const UPLOAD_URL_RE = /^\/api\/uploads\/[a-f0-9]{32}$/;
 const JWT_SECRET = process.env.JWT_SECRET || 'auramall_jwt_secret_ecommerce_2026';
 // OAuth Client ID tạo tại Google Cloud Console; để trống thì tắt đăng nhập Google
 const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
@@ -274,13 +276,44 @@ function slugify(text) {
     .slice(0, 200);
 }
 
-// Chỉ nhận link ảnh http(s) hoặc ảnh có sẵn của hệ thống (/images/...), chặn javascript:, data:...
+// Chỉ nhận link ảnh http(s), ảnh có sẵn của hệ thống (/images/...) hoặc ảnh đã tải lên (/api/uploads/...),
+// chặn javascript:, data:...
 function parseImageUrl(value, name) {
   const url = typeof value === 'string' ? value.trim() : '';
-  if (url.length > 2048 || !(/^https?:\/\/[^\s"'<>]+$/i.test(url) || /^\/images\/[\w./-]+$/.test(url))) {
+  const ok = /^https?:\/\/[^\s"'<>]+$/i.test(url) || /^\/images\/[\w./-]+$/.test(url) || UPLOAD_URL_RE.test(url);
+  if (url.length > 2048 || !ok) {
     throw new HttpError(400, `${name} phải là đường dẫn ảnh http(s) hợp lệ.`);
   }
   return url;
+}
+
+// Nhận diện định dạng ảnh theo chữ ký đầu file (không tin Content-Type do trình duyệt gửi)
+function detectImageType(buf) {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') {
+    return 'image/webp';
+  }
+  return null;
+}
+
+// Xóa ảnh đã tải lên hơn 1 ngày mà không sản phẩm / đơn hàng nào dùng (người bán tải ảnh rồi bỏ dở form)
+async function cleanupOrphanUploads() {
+  try {
+    const result = await pool.query(`
+      DELETE FROM uploaded_images u
+      WHERE u.created_at < NOW() - INTERVAL '1 day'
+        AND NOT EXISTS (
+          SELECT 1 FROM products p
+          WHERE p.image_url = '/api/uploads/' || u.id OR p.thumbnails ? ('/api/uploads/' || u.id)
+        )
+        AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_image = '/api/uploads/' || u.id)`);
+    if (result.rowCount > 0) console.log(`Đã dọn ${result.rowCount} ảnh tải lên không còn dùng.`);
+  } catch (err) {
+    console.warn('Lưu ý cleanupOrphanUploads:', err.message);
+  }
 }
 
 // Kiểm tra dữ liệu form đăng bán / sửa sản phẩm
@@ -887,6 +920,62 @@ app.get('/api/user/products', requireRole('seller', 'admin'), async (req, res) =
   );
 
   res.json({ status: 'success', total: result.rowCount, data: result.rows });
+});
+
+// ==========================================
+// 4c. TẢI ẢNH SẢN PHẨM TỪ MÁY
+// Body là nội dung file ảnh (Content-Type image/jpeg|png|webp), không cần base64 hay multipart.
+// Ảnh lưu trong PostgreSQL nên mọi bản sao backend (khi scale) đều đọc được và được sao lưu cùng CSDL.
+// ==========================================
+const MAX_UPLOADS_PER_DAY = 200;
+
+app.post(
+  '/api/uploads/images',
+  requireRole('seller', 'admin'),
+  express.raw({ type: ['image/*', 'application/octet-stream'], limit: MAX_UPLOAD_BYTES }),
+  async (req, res) => {
+    const data = req.body;
+    if (!Buffer.isBuffer(data) || data.length === 0) {
+      throw new HttpError(400, 'Chưa có dữ liệu ảnh. Gửi nội dung file với Content-Type image/jpeg, image/png hoặc image/webp.');
+    }
+    const contentType = detectImageType(data);
+    if (!contentType) {
+      throw new HttpError(400, 'Định dạng hợp lệ: chỉ chấp nhận ảnh .jpg, .png hoặc .webp.');
+    }
+
+    const recent = await pool.query(
+      `SELECT COUNT(*) AS total FROM uploaded_images WHERE owner_id = $1 AND created_at > NOW() - INTERVAL '1 day'`,
+      [req.user.userId]
+    );
+    if (recent.rows[0].total >= MAX_UPLOADS_PER_DAY) {
+      throw new HttpError(429, `Mỗi tài khoản chỉ được tải lên tối đa ${MAX_UPLOADS_PER_DAY} ảnh mỗi ngày.`);
+    }
+
+    const id = crypto.randomBytes(16).toString('hex');
+    await pool.query(
+      'INSERT INTO uploaded_images (id, owner_id, content_type, size_bytes, data) VALUES ($1, $2, $3, $4, $5)',
+      [id, req.user.userId, contentType, data.length, data]
+    );
+    res.status(201).json({
+      status: 'success',
+      message: 'Đã tải ảnh lên.',
+      data: { url: `/api/uploads/${id}`, contentType, size: data.length },
+    });
+  }
+);
+
+// Trả ảnh đã tải lên; nội dung theo id không bao giờ đổi nên cho trình duyệt cache lâu dài
+app.get('/api/uploads/:id', async (req, res) => {
+  const id = String(req.params.id);
+  const result = /^[a-f0-9]{32}$/.test(id)
+    ? await pool.query('SELECT content_type, data FROM uploaded_images WHERE id = $1', [id])
+    : { rowCount: 0 };
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'Không tìm thấy ảnh.');
+  }
+  const { content_type: contentType, data } = result.rows[0];
+  res.set({ 'Content-Type': contentType, 'Cache-Control': 'public, max-age=31536000, immutable' });
+  res.send(data);
 });
 
 // ==========================================
@@ -1700,6 +1789,10 @@ app.use((err, req, res, next) => {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ status: 'fail', message: err.message });
   }
+  if (err.type === 'entity.too.large') {
+    const message = req.path.startsWith('/api/uploads/') ? 'Ảnh quá lớn, tối đa 5MB mỗi ảnh.' : 'Dữ liệu gửi lên quá lớn.';
+    return res.status(413).json({ status: 'fail', message });
+  }
   if (err.expose && err.status < 500) {
     return res.status(err.status).json({ status: 'fail', message: 'Dữ liệu gửi lên không hợp lệ.' });
   }
@@ -1710,7 +1803,8 @@ app.use((err, req, res, next) => {
 // Khởi chạy HTTP Server
 const server = app.listen(PORT, () => {
   console.log(`Backend Auramall đang chạy tại cổng ${PORT}`);
-  autoMigrateDatabase();
+  autoMigrateDatabase().then(cleanupOrphanUploads);
+  setInterval(cleanupOrphanUploads, 3600 * 1000).unref();
 });
 
 // Ảnh của 24 sản phẩm mẫu, lưu tại frontend/images/products để Nginx phục vụ trực tiếp (nguồn ảnh: CREDITS.md)
@@ -1816,6 +1910,16 @@ async function autoMigrateDatabase() {
         unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
         subtotal NUMERIC(12, 2) NOT NULL CHECK (subtotal >= 0)
       );
+
+      CREATE TABLE IF NOT EXISTS uploaded_images (
+        id CHAR(32) PRIMARY KEY,
+        owner_id INT REFERENCES users(id) ON DELETE SET NULL,
+        content_type VARCHAR(30) NOT NULL,
+        size_bytes INT NOT NULL,
+        data BYTEA NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_uploaded_images_owner ON uploaded_images(owner_id, created_at);
     `);
 
     // 1. Kiểm tra nạp danh mục

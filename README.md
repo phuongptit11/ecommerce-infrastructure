@@ -159,10 +159,12 @@ Hệ thống gồm 8 phân hệ màn hình chuẩn TMĐT:
   * Tra cứu danh sách tất cả các đơn hàng đã đặt thành công.
 
 ### 7. Kênh Người Bán (chỉ tài khoản người bán và quản trị)
-* Trang `#/sell`: đăng bán sản phẩm mới với tên, danh mục, giá bán, giá gốc (tự tính % giảm), tồn kho, link ảnh chính, ảnh phụ và mô tả; **xem trước thẻ sản phẩm** ngay khi nhập.
+* Trang `#/sell`: đăng bán sản phẩm mới với tên, danh mục, giá bán, giá gốc (tự tính % giảm), tồn kho, hình ảnh và mô tả; **xem trước thẻ sản phẩm** ngay khi nhập.
+* **Hình ảnh sản phẩm** (tối đa 8, ảnh đầu tiên là ảnh chính): **tải ảnh từ máy** (chọn nhiều ảnh cùng lúc, kéo thả từ thư mục hoặc Ctrl+V ảnh chụp màn hình) hoặc dán link http(s). Ảnh JPG/PNG/WEBP tối đa 5MB, ảnh lớn được trình duyệt tự thu nhỏ còn cạnh dài 1600px trước khi gửi. Đổi thứ tự, đặt ảnh chính, xóa ảnh ngay trên lưới ảnh.
+  * Ảnh lưu trong PostgreSQL (bảng `uploaded_images`) nên mọi bản sao backend khi scale đều đọc được và được sao lưu cùng `scripts/backup.sh`; ảnh tải lên mà không sản phẩm nào dùng sẽ tự xóa sau 1 ngày.
 * Tab "Sản phẩm của tôi": danh sách sản phẩm đã đăng, sửa, xóa (sản phẩm đã có đơn hàng thì không xóa được, chỉ đặt tồn kho về 0).
 * Tab "Đơn hàng của shop": các đơn có sản phẩm của shop (người nhận, địa chỉ giao, trạng thái) kèm số đơn, số sản phẩm đã bán và doanh thu.
-* API: `POST/PUT/DELETE /api/products`, `GET /api/user/products`, `GET /api/seller/orders`; người mua gọi sẽ bị từ chối (403), người bán chỉ sửa/xóa được sản phẩm của mình.
+* API: `POST/PUT/DELETE /api/products`, `POST /api/uploads/images`, `GET /api/user/products`, `GET /api/seller/orders`; người mua gọi sẽ bị từ chối (403), người bán chỉ sửa/xóa được sản phẩm của mình.
 
 ### 8. Quản Trị Hệ Thống (chỉ quản trị viên, `#/admin`)
 * **Tổng quan**: doanh thu (không tính đơn hủy), số đơn theo trạng thái, số sản phẩm/hết hàng, số người dùng theo quyền, đơn hàng mới nhất.

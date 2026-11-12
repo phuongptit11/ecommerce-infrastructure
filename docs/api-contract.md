@@ -357,7 +357,7 @@ Các API dưới đây chỉ dành cho vai trò **`seller` hoặc `admin`** (`40
   - `price`: số nguyên 1.000 - 9.999.999.999 (VND).
   - `originalPrice` (không bắt buộc): phải lớn hơn hoặc bằng `price`; `discount_percent` tự tính.
   - `stock`: số nguyên 0 - 1.000.000.
-  - `imageUrl`, `thumbnails` (không bắt buộc): link `http(s)://` hoặc ảnh có sẵn `/images/...`; tối đa 8 ảnh. Ảnh chính luôn là phần tử đầu của `thumbnails`.
+  - `imageUrl`, `thumbnails` (không bắt buộc): link `http(s)://`, ảnh có sẵn `/images/...` hoặc ảnh đã tải lên `/api/uploads/{id}` (xem `POST /api/uploads/images`); tối đa 8 ảnh. Ảnh chính luôn là phần tử đầu của `thumbnails`.
   - `description` (không bắt buộc): tối đa 5000 ký tự.
 
 - **Response `201 Created`**: `{ "status": "success", "message": "Đăng bán sản phẩm thành công!", "data": { ...sản phẩm như GET /api/products/:id } }`
@@ -384,6 +384,30 @@ Xóa sản phẩm do mình đăng bán.
 Danh sách sản phẩm do người dùng hiện tại đăng bán, mới nhất trước.
 
 - **Response `200 OK`**: `{ "status": "success", "total": 1, "data": [ { ...sản phẩm } ] }`
+
+### `POST /api/uploads/images`
+Tải ảnh sản phẩm từ máy. Body là **nội dung file ảnh** (không base64, không multipart), header `Content-Type: image/jpeg | image/png | image/webp`.
+
+```bash
+curl -X POST http://localhost/api/uploads/images \
+  -H "Authorization: Bearer <token>" -H "Content-Type: image/jpeg" \
+  --data-binary @anh-san-pham.jpg
+```
+
+- **Ràng buộc**: tối đa 5MB/ảnh (Nginx cho phép 6MB ở `/api/uploads/`), 200 ảnh/ngày mỗi tài khoản; định dạng được kiểm tra theo chữ ký đầu file, không tin `Content-Type`.
+- **Response `201 Created`**:
+```json
+{
+  "status": "success",
+  "message": "Đã tải ảnh lên.",
+  "data": { "url": "/api/uploads/3f2b9c0e8d7a41e6b5c4d3e2f1a09876", "contentType": "image/jpeg", "size": 284133 }
+}
+```
+- Lỗi: `400` (không phải ảnh JPG/PNG/WEBP), `413` (quá 5MB), `429` (vượt hạn mức trong ngày).
+- Dùng `data.url` làm `imageUrl` / phần tử của `thumbnails` khi gọi `POST/PUT /api/products`. Ảnh lưu trong bảng `uploaded_images` của PostgreSQL; ảnh không được sản phẩm/đơn hàng nào dùng sau 1 ngày sẽ tự xóa.
+
+### `GET /api/uploads/:id`
+Trả nội dung ảnh (không cần đăng nhập), header `Cache-Control: public, max-age=31536000, immutable`. `404` nếu không có ảnh.
 
 ---
 

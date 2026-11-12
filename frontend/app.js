@@ -25,6 +25,12 @@ const SHIPPING_FEE = 30000;
 const HERO_IDS = [21, 3, 14, 8]; // sản phẩm trình diễn trên banner trang chủ
 const HERO_DURATION = 6500;
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Ảnh sản phẩm (khớp giới hạn của backend)
+const MAX_PRODUCT_IMAGES = 8;
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const SHRINK_MAX_SIDE = 1600; // ảnh lớn hơn được thu nhỏ trước khi gửi để tải nhanh và nhẹ CSDL
+const SHRINK_FROM_BYTES = 1.5 * 1024 * 1024;
 
 const SORTS = [
   ['popular', 'Phổ biến'],
@@ -66,6 +72,7 @@ const state = {
   megaCat: null,
   searchTicket: 0,
   pendingAvatar: null,
+  sell: null, // form đăng bán: { images: [url], uploading: số ảnh đang tải lên }
   modalOnClose: null,
 };
 
@@ -190,7 +197,7 @@ const PLACEHOLDER = svgData(
 
 function imgSrc(url) {
   const value = typeof url === 'string' ? url.trim() : '';
-  return /^(https?:\/\/|\/images\/|data:image\/(png|jpe?g|webp|gif);base64,)/i.test(value) ? value : PLACEHOLDER;
+  return /^(https?:\/\/|\/images\/|\/api\/uploads\/|data:image\/(png|jpe?g|webp|gif);base64,)/i.test(value) ? value : PLACEHOLDER;
 }
 
 function avatarSrc(user) {
@@ -209,7 +216,7 @@ function remember(products) {
 }
 
 function isValidImageUrl(url) {
-  return /^https?:\/\/[^\s"'<>]+$/i.test(url) || /^\/images\/[\w./-]+$/.test(url);
+  return /^https?:\/\/[^\s"'<>]+$/i.test(url) || /^\/images\/[\w./-]+$/.test(url) || /^\/api\/uploads\/[a-f0-9]{32}$/.test(url);
 }
 
 function setBusy(button, busy, text) {
@@ -234,14 +241,16 @@ class ApiError extends Error {
   }
 }
 
+// body là đối tượng thì gửi JSON; là Blob/File (ảnh tải lên) thì gửi nguyên nội dung file
 async function api(path, { method = 'GET', body } = {}) {
   const headers = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const isFile = body instanceof Blob;
+  if (body !== undefined) headers['Content-Type'] = isFile ? body.type || 'application/octet-stream' : 'application/json';
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
 
   let res;
   try {
-    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(path, { method, headers, body: body === undefined || isFile ? body : JSON.stringify(body) });
   } catch {
     throw new ApiError('Không kết nối được máy chủ. Vui lòng kiểm tra mạng và thử lại.', 0);
   }
@@ -2742,7 +2751,9 @@ async function viewSell({ params: [id], token }) {
   }
   if (stale(token)) return;
 
-  const extra = (product?.thumbnails || []).filter((url) => url && url !== product.image_url).join('\n');
+  // Ảnh chính luôn đứng đầu danh sách, bỏ ảnh trùng
+  const images = [product?.image_url, ...(product?.thumbnails || [])].filter(Boolean);
+  state.sell = { images: [...new Set(images)].slice(0, MAX_PRODUCT_IMAGES), uploading: 0 };
   const title = product ? 'Chỉnh sửa sản phẩm' : 'Đăng bán sản phẩm';
   $('#view').innerHTML = `
     ${pageHead([['Trang chủ', '#/'], ['Kênh người bán', '#/account/products'], [title]], title, 'Thông tin rõ ràng và hình ảnh đẹp giúp sản phẩm bán chạy hơn.')}
@@ -2776,13 +2787,16 @@ async function viewSell({ params: [id], token }) {
             <input class="input" id="spStock" name="stock" type="number" inputmode="numeric" min="0" max="1000000" step="1" value="${product?.stock ?? ''}" required>
           </div>
           <div class="field span-2">
-            <label for="spImage">Link ảnh chính</label>
-            <input class="input" id="spImage" name="imageUrl" type="url" value="${esc(product?.image_url ?? '')}" placeholder="https://...">
-            <span class="hint">Dán link ảnh (http/https) lấy từ trang của hãng hoặc kho ảnh. Để trống sẽ dùng ảnh mặc định.</span>
-          </div>
-          <div class="field span-2">
-            <label for="spThumbs">Ảnh phụ (mỗi dòng một link, tối đa 7)</label>
-            <textarea class="input" id="spThumbs" name="thumbnails" rows="3" placeholder="https://...">${esc(extra)}</textarea>
+            <span class="label" id="spImagesLabel">Hình ảnh sản phẩm (tối đa ${MAX_PRODUCT_IMAGES})</span>
+            <div class="img-manager" id="imgManager" aria-labelledby="spImagesLabel">
+              <div class="img-grid" id="imgGrid"></div>
+              <input type="file" id="spFiles" accept="image/jpeg,image/png,image/webp" multiple hidden data-change="sell-files">
+              <div class="img-url-row">
+                <input class="input" id="spImageUrl" type="url" inputmode="url" placeholder="Hoặc dán link ảnh https://..." aria-label="Link ảnh">
+                <button class="btn btn--sm" type="button" data-action="img-add-url">Thêm link</button>
+              </div>
+            </div>
+            <span class="hint">Chọn nhiều ảnh cùng lúc, kéo thả từ thư mục hoặc dán (Ctrl+V) ảnh chụp màn hình. JPG, PNG, WEBP, tối đa 5MB/ảnh; ảnh lớn được tự thu nhỏ. Ảnh đầu tiên là ảnh chính.</span>
           </div>
           <div class="field span-2">
             <label for="spDesc">Mô tả sản phẩm</label>
@@ -2800,24 +2814,172 @@ async function viewSell({ params: [id], token }) {
         <div id="sellPreview"></div>
       </aside>
     </div>`;
-  updateSellPreview();
+  bindImageDrop($('#imgManager'));
+  renderSellImages();
 }
 
 function readProductForm(form) {
-  const thumbnails = form.thumbnails.value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const images = state.sell?.images ?? [];
   return {
     name: form.productName.value.trim(), // không đặt name="name": trùng thuộc tính form.name có sẵn
     categoryId: Number(form.categoryId.value) || null,
     price: form.price.value === '' ? null : Number(form.price.value),
     originalPrice: form.originalPrice.value === '' ? null : Number(form.originalPrice.value),
     stock: form.stock.value === '' ? null : Number(form.stock.value),
-    imageUrl: form.imageUrl.value.trim() || null,
-    thumbnails,
+    imageUrl: images[0] ?? null,
+    thumbnails: images,
     description: form.description.value.trim(),
   };
+}
+
+// ---------- Quản lý ảnh sản phẩm: tải từ máy, kéo thả, dán, thêm link ----------
+function renderSellImages() {
+  const grid = $('#imgGrid');
+  if (!grid || !state.sell) return;
+  const { images, uploading } = state.sell;
+  const last = images.length - 1;
+  const tiles = images.map(
+    (url, i) => `
+      <figure class="img-tile ${i === 0 ? 'is-main' : ''}">
+        <img src="${esc(imgSrc(url))}" alt="Ảnh ${i + 1}" loading="lazy">
+        ${i === 0 ? '<span class="img-badge">Ảnh chính</span>' : ''}
+        <figcaption class="img-tools">
+          <button type="button" data-action="img-move" data-index="${i}" data-step="-1" ${i === 0 ? 'disabled' : ''} aria-label="Đưa ảnh ${i + 1} lên trước" title="Đưa lên trước">${icon('left', 'icon-sm')}</button>
+          ${i === 0 ? '' : `<button type="button" data-action="img-main" data-index="${i}" aria-label="Đặt ảnh ${i + 1} làm ảnh chính" title="Đặt làm ảnh chính">${icon('star', 'icon-sm')}</button>`}
+          <button type="button" data-action="img-move" data-index="${i}" data-step="1" ${i === last ? 'disabled' : ''} aria-label="Đưa ảnh ${i + 1} ra sau" title="Đưa ra sau">${icon('right', 'icon-sm')}</button>
+          <button type="button" data-action="img-remove" data-index="${i}" aria-label="Xóa ảnh ${i + 1}" title="Xóa ảnh">${icon('trash', 'icon-sm')}</button>
+        </figcaption>
+      </figure>`
+  );
+  for (let i = 0; i < uploading; i++) {
+    tiles.push('<div class="img-tile is-loading" aria-label="Đang tải ảnh lên"><span class="spinner"></span></div>');
+  }
+  if (images.length + uploading < MAX_PRODUCT_IMAGES) {
+    tiles.push(`
+      <button type="button" class="img-drop" data-action="img-pick">
+        ${icon('plus')}
+        <strong>Tải ảnh từ máy</strong>
+        <small>hoặc kéo thả vào đây</small>
+      </button>`);
+  }
+  grid.innerHTML = tiles.join('');
+  $('#spImagesLabel').textContent = `Hình ảnh sản phẩm (${images.length}/${MAX_PRODUCT_IMAGES})`;
+  updateSellPreview();
+}
+
+// Ảnh quá lớn: vẽ lại lên canvas với cạnh dài tối đa 1600px, xuất JPEG (nền trắng nếu ảnh PNG trong suốt)
+async function shrinkImage(file) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error(`"${file.name}" không phải ảnh hợp lệ hoặc đã bị hỏng.`);
+  }
+  const scale = Math.min(1, SHRINK_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= SHRINK_FROM_BYTES) {
+    bitmap.close();
+    return file;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+  return blob && blob.size < file.size ? blob : file;
+}
+
+async function uploadSellFiles(fileList) {
+  if (!state.sell) return;
+  const files = [...fileList];
+  const images = files.filter((f) => UPLOAD_TYPES.includes(f.type));
+  if (images.length < files.length) toast('Chỉ nhận ảnh JPG, PNG hoặc WEBP; đã bỏ qua tệp khác.', 'error');
+  const room = MAX_PRODUCT_IMAGES - state.sell.images.length - state.sell.uploading;
+  if (images.length > room) toast(`Tối đa ${MAX_PRODUCT_IMAGES} ảnh cho mỗi sản phẩm; chỉ tải thêm ${Math.max(room, 0)} ảnh.`, 'error');
+  const queue = images.slice(0, Math.max(room, 0));
+  if (!queue.length) return;
+
+  const sell = state.sell; // rời trang giữa chừng thì bỏ kết quả của form cũ
+  sell.uploading += queue.length;
+  renderSellImages();
+  let done = 0;
+  for (const file of queue) {
+    try {
+      const blob = await shrinkImage(file);
+      if (blob.size > MAX_UPLOAD_BYTES) throw new Error(`"${file.name}" vượt quá 5MB, vui lòng chọn ảnh nhỏ hơn.`);
+      const res = await api('/api/uploads/images', { method: 'POST', body: blob });
+      sell.images.push(res.data.url);
+      done++;
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      sell.uploading--;
+      if (state.sell === sell) renderSellImages();
+    }
+  }
+  if (done && state.sell === sell) toast(done === 1 ? 'Đã tải ảnh lên.' : `Đã tải ${done} ảnh lên.`);
+}
+
+function addSellImageUrl() {
+  const input = $('#spImageUrl');
+  if (!input || !state.sell) return;
+  const url = input.value.trim();
+  if (!url) return;
+  if (!isValidImageUrl(url)) {
+    toast('Link ảnh phải bắt đầu bằng http:// hoặc https://', 'error');
+    return;
+  }
+  if (state.sell.images.includes(url)) {
+    toast('Ảnh này đã có trong danh sách.', 'error');
+    return;
+  }
+  if (state.sell.images.length + state.sell.uploading >= MAX_PRODUCT_IMAGES) {
+    toast(`Tối đa ${MAX_PRODUCT_IMAGES} ảnh cho mỗi sản phẩm.`, 'error');
+    return;
+  }
+  state.sell.images.push(url);
+  input.value = '';
+  renderSellImages();
+}
+
+function moveSellImage(from, to) {
+  const list = state.sell?.images;
+  if (!list || to < 0 || to >= list.length) return;
+  const [item] = list.splice(from, 1);
+  list.splice(to, 0, item);
+  renderSellImages();
+}
+
+// Kéo thả ảnh từ thư mục vào khung quản lý ảnh
+function bindImageDrop(zone) {
+  if (!zone) return;
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  zone.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    zone.classList.add('is-dragover');
+  });
+  zone.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  zone.addEventListener('dragleave', () => {
+    depth = Math.max(depth - 1, 0);
+    if (!depth) zone.classList.remove('is-dragover');
+  });
+  zone.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    zone.classList.remove('is-dragover');
+    uploadSellFiles(e.dataTransfer.files);
+  });
 }
 
 function updateSellPreview() {
@@ -2849,16 +3011,17 @@ function updateSellPreview() {
 
 async function submitProduct(form, button) {
   const d = readProductForm(form);
-  const images = [d.imageUrl, ...d.thumbnails].filter(Boolean);
+  const images = d.thumbnails;
   let error = '';
-  if (d.name.length < 3) error = 'Tên sản phẩm phải từ 3 ký tự trở lên.';
+  if (state.sell?.uploading) error = 'Ảnh đang được tải lên, vui lòng đợi trong giây lát.';
+  else if (d.name.length < 3) error = 'Tên sản phẩm phải từ 3 ký tự trở lên.';
   else if (!d.categoryId) error = 'Vui lòng chọn danh mục sản phẩm.';
   else if (!Number.isInteger(d.price) || d.price < 1000) error = 'Giá bán phải là số nguyên từ 1.000 ₫.';
   else if (d.originalPrice !== null && (!Number.isInteger(d.originalPrice) || d.originalPrice < d.price))
     error = 'Giá gốc phải lớn hơn hoặc bằng giá bán.';
   else if (!Number.isInteger(d.stock) || d.stock < 0) error = 'Tồn kho phải là số nguyên không âm.';
   else if (images.some((url) => !isValidImageUrl(url))) error = 'Link ảnh phải bắt đầu bằng http:// hoặc https://';
-  else if (new Set(images).size > 8) error = 'Tối đa 8 ảnh cho mỗi sản phẩm.';
+  else if (new Set(images).size > MAX_PRODUCT_IMAGES) error = `Tối đa ${MAX_PRODUCT_IMAGES} ảnh cho mỗi sản phẩm.`;
   if (error) {
     toast(error, 'error');
     return;
@@ -3275,6 +3438,15 @@ const ACTIONS = {
     toast('Đăng nhập Google chưa được bật: quản trị viên cần đặt GOOGLE_CLIENT_ID cho backend (xem README).', 'error'),
   'avatar-pick': () => $('#avatarFile')?.click(),
   'product-delete': (el) => deleteProduct(Number(el.dataset.id)),
+
+  'img-pick': () => $('#spFiles')?.click(),
+  'img-add-url': addSellImageUrl,
+  'img-move': (el) => moveSellImage(Number(el.dataset.index), Number(el.dataset.index) + Number(el.dataset.step)),
+  'img-main': (el) => moveSellImage(Number(el.dataset.index), 0),
+  'img-remove': (el) => {
+    state.sell?.images.splice(Number(el.dataset.index), 1);
+    renderSellImages();
+  },
 };
 
 const CHANGES = {
@@ -3293,6 +3465,11 @@ const CHANGES = {
   },
   'flash-filter': (el) => go(routeUrl({ flashSale: el.checked ? '1' : '' })),
   'avatar-file': pickAvatarFile,
+  'sell-files': (el) => {
+    const files = [...el.files];
+    el.value = ''; // chọn lại cùng tệp vẫn kích hoạt sự kiện
+    uploadSellFiles(files);
+  },
   'admin-role': changeUserRole,
   'admin-order-status': changeOrderStatus,
 };
@@ -3363,7 +3540,22 @@ function bindEvents() {
     FORMS[form.dataset.form]?.(form, e.submitter || form.querySelector('[type="submit"]'));
   });
 
+  // Dán ảnh (Ctrl+V ảnh chụp màn hình / ảnh đã sao chép) khi đang ở form đăng bán
+  document.addEventListener('paste', (e) => {
+    if (!$('#imgManager')) return;
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+    if (!files.length) return;
+    e.preventDefault();
+    uploadSellFiles(files);
+  });
+
   document.addEventListener('keydown', (e) => {
+    // Enter trong ô link ảnh: thêm ảnh thay vì gửi cả form
+    if (e.key === 'Enter' && e.target.id === 'spImageUrl') {
+      e.preventDefault();
+      addSellImageUrl();
+      return;
+    }
     if (state.lightbox) {
       if (e.key === 'Escape') closeLightbox();
       else if (e.key === 'ArrowLeft') showLightbox(state.lightbox.index - 1);

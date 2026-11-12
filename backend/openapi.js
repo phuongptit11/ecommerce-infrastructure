@@ -204,8 +204,17 @@ module.exports = {
             description: 'Giá gốc, phải >= giá bán; dùng để tính % giảm giá',
           },
           stock: { type: 'integer', minimum: 0, maximum: 1000000 },
-          imageUrl: { type: 'string', nullable: true, description: 'Link ảnh http(s)' },
-          thumbnails: { type: 'array', items: { type: 'string' }, maxItems: 8, description: 'Ảnh phụ' },
+          imageUrl: {
+            type: 'string',
+            nullable: true,
+            description: 'Ảnh chính: link http(s) hoặc `/api/uploads/{id}` nhận được khi tải ảnh lên',
+          },
+          thumbnails: {
+            type: 'array',
+            items: { type: 'string' },
+            maxItems: 8,
+            description: 'Dải ảnh (cùng định dạng với imageUrl), ảnh trùng được bỏ qua',
+          },
           description: { type: 'string', maxLength: 5000 },
         },
         example: {
@@ -643,6 +652,66 @@ module.exports = {
           200: success('Danh sách sản phẩm', { type: 'array', items: ref('Product') }, { total: { type: 'integer' } }),
           401: UNAUTHORIZED,
           403: FORBIDDEN,
+        },
+      },
+    },
+    '/api/uploads/images': {
+      post: {
+        tags: ['Kênh người bán'],
+        summary: 'Tải ảnh sản phẩm từ máy (seller, admin)',
+        description:
+          'Body là **nội dung file ảnh** (không base64, không multipart), `Content-Type` là `image/jpeg`, `image/png` hoặc `image/webp`. ' +
+          'Tối đa 5MB/ảnh, 200 ảnh/ngày mỗi tài khoản. Định dạng được kiểm tra theo chữ ký đầu file. ' +
+          'Dùng `data.url` trả về làm `imageUrl`/`thumbnails` khi đăng bán. Ảnh lưu trong PostgreSQL; ' +
+          'ảnh không được sản phẩm nào dùng sau 1 ngày sẽ tự xóa.',
+        security: BEARER,
+        requestBody: {
+          required: true,
+          content: {
+            'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+            'image/png': { schema: { type: 'string', format: 'binary' } },
+            'image/webp': { schema: { type: 'string', format: 'binary' } },
+          },
+        },
+        responses: {
+          201: success(
+            'Đã tải ảnh lên',
+            {
+              type: 'object',
+              properties: {
+                url: { type: 'string', example: '/api/uploads/3f2b9c0e8d7a41e6b5c4d3e2f1a09876' },
+                contentType: { type: 'string', example: 'image/jpeg' },
+                size: { type: 'integer', example: 284133 },
+              },
+            },
+            { message: { type: 'string', example: 'Đã tải ảnh lên.' } }
+          ),
+          400: fail('Không phải ảnh JPG/PNG/WEBP', 'Định dạng hợp lệ: chỉ chấp nhận ảnh .jpg, .png hoặc .webp.'),
+          401: UNAUTHORIZED,
+          403: FORBIDDEN,
+          413: fail('Ảnh quá lớn', 'Ảnh quá lớn, tối đa 5MB mỗi ảnh.'),
+          429: fail('Vượt hạn mức trong ngày', 'Mỗi tài khoản chỉ được tải lên tối đa 200 ảnh mỗi ngày.'),
+        },
+      },
+    },
+    '/api/uploads/{id}': {
+      get: {
+        tags: ['Sản phẩm'],
+        summary: 'Xem ảnh đã tải lên',
+        description: 'Trả nội dung ảnh, cho phép trình duyệt cache 1 năm (nội dung theo id không bao giờ đổi).',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', pattern: '^[a-f0-9]{32}$' } },
+        ],
+        responses: {
+          200: {
+            description: 'Nội dung ảnh',
+            content: {
+              'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+              'image/png': { schema: { type: 'string', format: 'binary' } },
+              'image/webp': { schema: { type: 'string', format: 'binary' } },
+            },
+          },
+          404: fail('Không có ảnh', 'Không tìm thấy ảnh.'),
         },
       },
     },

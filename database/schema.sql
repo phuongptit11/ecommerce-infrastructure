@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS order_items (
     subtotal NUMERIC(12, 2) NOT NULL CHECK (subtotal >= 0)
 );
 
+-- 7. Ảnh sản phẩm người bán tải lên từ máy (phục vụ qua GET /api/uploads/{id})
+-- Lưu trong CSDL để mọi bản sao backend dùng chung và được sao lưu cùng pg_dump
+CREATE TABLE IF NOT EXISTS uploaded_images (
+    id CHAR(32) PRIMARY KEY, -- chuỗi hex ngẫu nhiên, không đoán được
+    owner_id INT REFERENCES users(id) ON DELETE SET NULL,
+    content_type VARCHAR(30) NOT NULL, -- image/jpeg, image/png, image/webp
+    size_bytes INT NOT NULL,
+    data BYTEA NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Tối ưu hóa chỉ mục (Indexes) theo tiêu chuẩn hiệu năng hạ tầng TMĐT
 CREATE INDEX IF NOT EXISTS idx_products_id ON products(id);
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
@@ -108,3 +119,4 @@ CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_user_addresses_user_id ON user_addresses(user_id);
+CREATE INDEX IF NOT EXISTS idx_uploaded_images_owner ON uploaded_images(owner_id, created_at);
