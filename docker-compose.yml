@@ -3,6 +3,7 @@
 #   Khởi động:         docker compose up -d --build
 #   Mở rộng backend:   docker compose up -d --scale backend=3
 #   Xem log:           docker compose logs -f backend
+#   Chạy kèm tên miền: docker compose --profile tunnel up -d   (Cloudflare Tunnel, cần CLOUDFLARE_TUNNEL_TOKEN)
 #   Dừng:              docker compose down        (thêm -v để xóa dữ liệu, lần sau nạp lại schema/seed)
 #
 # Mọi biến đều có giá trị mặc định; muốn đổi mật khẩu, cổng... thì tạo file .env từ .env.example
@@ -23,6 +24,24 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - public_net
+
+  # Tùy chọn: đưa website ra Internet bằng tên miền qua Cloudflare Tunnel (HTTPS, không cần mở cổng router).
+  # Tunnel kết nối ra Cloudflare rồi chuyển truy cập vào http://nginx:80, nên vẫn đi qua đủ 3 tầng.
+  #   Bật:  đặt CLOUDFLARE_TUNNEL_TOKEN trong .env rồi chạy  docker compose --profile tunnel up -d
+  # Không bật profile "tunnel" thì dịch vụ này không chạy (máy chưa có token vẫn dùng bình thường).
+  tunnel:
+    image: cloudflare/cloudflared:2025.11.1
+    container_name: ecommerce_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - nginx
+    profiles:
+      - tunnel
     networks:
       - public_net
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chính sách quyền riêng tư — AuraMall</title>
+  <meta name="description" content="Chính sách quyền riêng tư của AuraMall: dữ liệu thu thập, mục đích sử dụng và quyền của người dùng." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600&family=Montserrat:wght@300;400;500;600&display=swap" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* Trang tĩnh: Google yêu cầu đường dẫn chính sách quyền riêng tư trên tên miền của ứng dụng */
+    .policy { max-width: 820px; margin: 0 auto; padding: 56px 16px 96px; line-height: 1.75; }
+    .policy h1 { font-family: var(--font-display); font-weight: 300; letter-spacing: 0.08em; text-transform: uppercase; font-size: clamp(26px, 4vw, 38px); margin: 8px 0 12px; }
+    .policy h2 { font-family: var(--font-display); font-weight: 500; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; margin: 40px 0 10px; }
+    .policy p, .policy li { color: var(--ink-soft); font-size: 15.5px; }
+    .policy ul { padding-left: 20px; list-style: disc; }
+    .policy li { margin: 6px 0; }
+    .policy .updated { color: var(--muted); font-size: 13px; }
+    .policy-top { background: var(--black); padding: 22px 16px; text-align: center; }
+    .policy-top a { color: #fff; font-family: var(--font-display); letter-spacing: 0.4em; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <header class="policy-top"><a href="/"><strong>AURA</strong>MALL</a></header>
+  <main class="policy">
+    <p class="eyebrow">AuraMall</p>
+    <h1>Chính sách quyền riêng tư</h1>
+    <p class="updated">Cập nhật: 12/11/2026</p>
+    <p>AuraMall là website thương mại điện tử thuộc đồ án môn học (Đề tài 07: Thiết kế hạ tầng CNTT cho hệ thống TMĐT). Trang này mô tả dữ liệu chúng tôi thu thập khi bạn sử dụng AuraMall và cách dữ liệu đó được dùng.</p>
+
+    <h2>1. Dữ liệu chúng tôi thu thập</h2>
+    <ul>
+      <li><strong>Thông tin tài khoản</strong>: tên đăng nhập, email, số điện thoại, mật khẩu (chỉ lưu dạng băm, không lưu mật khẩu gốc), giới tính, ngày sinh và ảnh đại diện nếu bạn tự cung cấp.</li>
+      <li><strong>Khi đăng nhập bằng Google</strong>: địa chỉ email đã xác minh, ảnh hồ sơ và mã định danh tài khoản Google. Chúng tôi không nhận mật khẩu Google và không truy cập Gmail, Drive hay dữ liệu Google nào khác.</li>
+      <li><strong>Đơn hàng và sổ địa chỉ</strong>: tên người nhận, số điện thoại, địa chỉ giao hàng, sản phẩm đã mua và ghi chú cho người bán.</li>
+      <li><strong>Người bán</strong>: thông tin sản phẩm và hình ảnh sản phẩm bạn tải lên.</li>
+      <li><strong>Lưu trữ trên trình duyệt</strong>: mã đăng nhập (token) và giỏ hàng được lưu trong bộ nhớ của trình duyệt (localStorage) trên máy bạn để giữ phiên đăng nhập và giỏ hàng.</li>
+    </ul>
+
+    <h2>2. Mục đích sử dụng</h2>
+    <ul>
+      <li>Tạo và xác thực tài khoản, phân quyền người mua / người bán / quản trị.</li>
+      <li>Xử lý đơn hàng, giao hàng và hiển thị lịch sử mua hàng, doanh thu của người bán.</li>
+      <li>Bảo đảm an toàn và vận hành hệ thống (ghi nhật ký truy cập, sao lưu cơ sở dữ liệu).</li>
+    </ul>
+    <p>Chúng tôi <strong>không bán, không cho thuê và không chia sẻ</strong> dữ liệu cá nhân của bạn cho bên thứ ba vì mục đích quảng cáo.</p>
+
+    <h2>3. Lưu trữ và bảo mật</h2>
+    <p>Dữ liệu được lưu trong cơ sở dữ liệu PostgreSQL của hệ thống, chỉ máy chủ ứng dụng truy cập được; kết nối tới website được mã hóa HTTPS. Người bán chỉ xem được thông tin giao hàng của các đơn có sản phẩm của mình; quản trị viên quản lý toàn bộ hệ thống.</p>
+
+    <h2>4. Quyền của bạn</h2>
+    <ul>
+      <li>Xem và sửa thông tin hồ sơ, đổi mật khẩu, quản lý sổ địa chỉ trong mục Tài khoản.</li>
+      <li>Yêu cầu xóa tài khoản và dữ liệu liên quan bằng cách liên hệ quản trị viên AuraMall.</li>
+      <li>Thu hồi quyền đăng nhập bằng Google bất kỳ lúc nào tại <a class="link-lux" href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.</li>
+    </ul>
+
+    <h2>5. Liên hệ</h2>
+    <p>Mọi câu hỏi về quyền riêng tư, vui lòng liên hệ quản trị viên AuraMall qua email hỗ trợ hiển thị trên màn hình đăng nhập Google của ứng dụng hoặc hotline 1900 8899.</p>
+
+    <p style="margin-top: 48px"><a class="link-arrow" href="/">Về trang chủ AuraMall</a></p>
+  </main>
+</body>
+</html>
