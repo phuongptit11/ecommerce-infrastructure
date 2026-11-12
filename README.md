@@ -50,11 +50,28 @@ Sau khi khởi động:
 > CSDL tạo từ bản cũ vẫn dùng được: khi khởi động, backend tự thêm cột mới (`products.seller_id`, `users.role`, `users.google_sub`), tạo 2 tài khoản mẫu người bán/quản trị và đổi ảnh mẫu cũ (link Unsplash, một số đã hỏng) sang ảnh lưu tại `frontend/images/products/`.
 
 ### Bật đăng nhập bằng Google (tùy chọn)
-1. Vào [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → **Create credentials** → **OAuth client ID** → loại **Web application**.
-2. Mục **Authorized JavaScript origins** thêm `http://localhost` (thêm cả cổng nếu đổi `NGINX_PORT`, ví dụ `http://localhost:8080`).
+1. [Google Cloud Console](https://console.cloud.google.com/auth/clients) → **Google Auth Platform** → **Clients** → **Create client** → loại **Web application**.
+2. Mục **Authorized JavaScript origins** thêm `http://localhost` (thêm cả cổng nếu đổi `NGINX_PORT`, ví dụ `http://localhost:8080`) và `https://<tên miền>` nếu chạy bằng tên miền.
 3. Chép Client ID vào file `.env`: `GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com`, rồi chạy lại `docker compose up -d`.
+4. Để mọi tài khoản Google đăng nhập được: **Branding** điền trang chủ và chính sách quyền riêng tư (`https://<tên miền>/privacy.html`), rồi **Audience** → **Publish app**. Khi chưa publish, chỉ các email trong **Test users** đăng nhập được.
 
 Chưa đặt `GOOGLE_CLIENT_ID` thì nút Google vẫn hiện nhưng báo chưa cấu hình; các chức năng khác không bị ảnh hưởng.
+
+> Bản triển khai của nhóm: Google Cloud project `auramall-514516`, client "AuraMall Web" (đã publish), origin `http://localhost`, `http://localhost:8080`, `https://duytu205.id.vn`.
+
+### Truy cập bằng tên miền qua Cloudflare Tunnel (tùy chọn)
+Đưa web đang chạy trên máy ra Internet với HTTPS, **không cần IP tĩnh hay mở cổng router**: container `cloudflared` kết nối ra Cloudflare, Cloudflare chuyển truy cập của tên miền vào `http://nginx:80` nên vẫn đi qua đủ 3 tầng Nginx → Node.js → PostgreSQL.
+
+1. Thêm tên miền vào Cloudflare (gói Free), đổi nameserver ở nhà đăng ký (Mắt Bão: Quản trị tên miền → Name Server → Sử dụng Name Server tùy chỉnh) sang 2 nameserver Cloudflare cấp. Cập nhật mất từ vài phút tới 24 giờ.
+2. Cloudflare → **Networking** → **Tunnels** → **Create Tunnel** → chọn Docker, sao chép token vào `.env`: `CLOUDFLARE_TUNNEL_TOKEN=...`
+3. Trong tunnel → **Routes** → **Add route** → **Published application**: tên miền, Service URL `http://nginx:80`.
+4. Chạy kèm tunnel:
+   ```bash
+   docker compose --profile tunnel up -d
+   ```
+5. (Nên bật) SSL/TLS → Edge Certificates → **Always Use HTTPS**.
+
+Web chỉ truy cập được qua tên miền khi máy đang bật và Docker đang chạy. Bản triển khai của nhóm: **https://duytu205.id.vn** (tunnel `auramall`).
 
 Để kiểm tra trạng thái các container:
 ```bash
