@@ -520,6 +520,75 @@ module.exports = {
         },
       },
     },
+    '/api/auth/forgot-password': {
+      post: {
+        tags: ['Xác thực'],
+        summary: 'Quên mật khẩu: gửi liên kết đặt lại qua email',
+        description:
+          'Luôn trả 200 với cùng thông báo dù email có tồn tại hay không. Liên kết `<APP_URL>/#/reset-password?token=...` ' +
+          'hiệu lực 30 phút, dùng 1 lần; mỗi tài khoản tối đa 3 yêu cầu/giờ, cách nhau 1 phút. Chưa cấu hình SMTP_HOST thì email in ra log backend.',
+        requestBody: {
+          required: true,
+          content: json(
+            { type: 'object', required: ['email'], properties: { email: { type: 'string', format: 'email' } } },
+            { email: 'user@auramall.vn' }
+          ),
+        },
+        responses: {
+          200: {
+            description: 'Đã nhận yêu cầu',
+            content: json(ref('Error'), {
+              status: 'success',
+              message: 'Nếu email này đã đăng ký, AuraMall đã gửi liên kết đặt lại mật khẩu. Vui lòng kiểm tra hộp thư (cả mục Spam).',
+            }),
+          },
+          400: fail('Email sai định dạng', 'Vui lòng nhập địa chỉ email hợp lệ.'),
+        },
+      },
+    },
+    '/api/auth/reset-password/verify': {
+      post: {
+        tags: ['Xác thực'],
+        summary: 'Kiểm tra liên kết đặt lại mật khẩu',
+        requestBody: {
+          required: true,
+          content: json(
+            { type: 'object', required: ['token'], properties: { token: { type: 'string', description: 'Mã trong liên kết email' } } },
+            { token: 'mã-43-ký-tự-trong-liên-kết' }
+          ),
+        },
+        responses: {
+          200: success('Liên kết hợp lệ', { type: 'object', properties: { email: { type: 'string', example: 'us***@auramall.vn' } } }),
+          400: fail('Mã sai, hết hạn hoặc đã dùng', 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.'),
+        },
+      },
+    },
+    '/api/auth/reset-password': {
+      post: {
+        tags: ['Xác thực'],
+        summary: 'Đặt lại mật khẩu bằng mã trong email',
+        description: 'Thành công thì đăng nhập luôn (trả token) và vô hiệu mọi liên kết đặt lại khác của tài khoản.',
+        requestBody: {
+          required: true,
+          content: json(
+            {
+              type: 'object',
+              required: ['token', 'newPassword', 'confirmPassword'],
+              properties: {
+                token: { type: 'string' },
+                newPassword: { type: 'string', description: 'Tối thiểu 8 ký tự, có chữ hoa, chữ thường và số' },
+                confirmPassword: { type: 'string' },
+              },
+            },
+            { token: 'mã-43-ký-tự-trong-liên-kết', newPassword: 'Matkhaumoi1', confirmPassword: 'Matkhaumoi1' }
+          ),
+        },
+        responses: {
+          200: { description: 'Đã đặt mật khẩu mới và đăng nhập', content: json(ref('AuthResponse')) },
+          400: fail('Mã sai/hết hạn, mật khẩu yếu hoặc nhập lại không khớp', 'Mật khẩu nhập lại không khớp.'),
+        },
+      },
+    },
     '/api/auth/me': {
       get: {
         tags: ['Xác thực'],

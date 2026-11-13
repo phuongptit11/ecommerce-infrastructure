@@ -59,6 +59,20 @@ Chưa đặt `GOOGLE_CLIENT_ID` thì nút Google vẫn hiện nhưng báo chưa 
 
 > Bản triển khai của nhóm: Google Cloud project `auramall-514516`, client "AuraMall Web" (đã publish), origin `http://localhost`, `http://localhost:8080`, `https://duytu205.id.vn`.
 
+### Gửi email quên mật khẩu (tùy chọn)
+Chức năng **Quên mật khẩu** gửi liên kết đặt lại qua email SMTP. Khai báo trong `.env` rồi chạy lại `docker compose up -d`:
+
+```env
+APP_URL=https://<tên miền>        # địa chỉ ghi trong liên kết; mặc định http://localhost
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=<địa chỉ gmail>
+SMTP_PASS=<mật khẩu ứng dụng 16 ký tự>
+```
+
+Với Gmail: bật Xác minh 2 bước rồi tạo **Mật khẩu ứng dụng** tại myaccount.google.com → Bảo mật (không dùng mật khẩu Gmail thật).
+Chưa đặt `SMTP_HOST` thì email không gửi đi mà in ra log, xem liên kết bằng: `docker compose logs backend | grep reset-password`.
+
 ### Truy cập bằng tên miền qua Cloudflare Tunnel (tùy chọn)
 Đưa web đang chạy trên máy ra Internet với HTTPS, **không cần IP tĩnh hay mở cổng router**: container `cloudflared` kết nối ra Cloudflare, Cloudflare chuyển truy cập của tên miền vào `http://nginx:80` nên vẫn đi qua đủ 3 tầng Nginx → Node.js → PostgreSQL.
 
@@ -72,6 +86,35 @@ Chưa đặt `GOOGLE_CLIENT_ID` thì nút Google vẫn hiện nhưng báo chưa 
 5. (Nên bật) SSL/TLS → Edge Certificates → **Always Use HTTPS**.
 
 Web chỉ truy cập được qua tên miền khi máy đang bật và Docker đang chạy. Bản triển khai của nhóm: **https://duytu205.id.vn** (tunnel `auramall`).
+
+### Deploy lên Render: web chạy 24/7 bằng tên miền, không cần bật máy (khuyên dùng)
+Cloudflare Tunnel chỉ hoạt động khi máy đang bật. Muốn chỉ cần vào tên miền là dùng được, đưa web lên Render bằng file `render.yaml` (Blueprint):
+- **auramall-db**: PostgreSQL 15 (tầng lưu trữ).
+- **auramall**: Node.js phục vụ cả giao diện lẫn API (`SERVE_FRONTEND=true` thay vai trò Nginx). Lần khởi động đầu `scripts/init-cloud-db.js` tự nạp `schema.sql` + `seed.sql`.
+
+1. Đẩy code (có `render.yaml`) lên GitHub.
+2. [render.com](https://render.com) → đăng nhập bằng GitHub → **New** → **Blueprint** → chọn repo `ecommerce-infrastructure` và nhánh → điền các biến Render hỏi:
+   `GOOGLE_CLIENT_ID`, `APP_URL=https://duytu205.id.vn`, `BREVO_API_KEY` và `MAIL_FROM` (để trống nếu chưa gửi email) → **Apply**.
+   Vài phút sau web chạy tại `https://<tên-service>.onrender.com`.
+3. Gắn tên miền: service **auramall** → **Settings** → **Custom Domains** → thêm `duytu205.id.vn`.
+   Trên Cloudflare: **DNS** → sửa bản ghi `duytu205.id.vn` (đang trỏ tới tunnel `...cfargotunnel.com`) thành **CNAME** tới `<tên-service>.onrender.com`, **Proxy status: DNS only** cho tới khi Render báo chứng chỉ hợp lệ (sau đó có thể bật Proxied). Xóa route của tunnel và dừng tunnel trên máy: `docker compose --profile tunnel stop tunnel`.
+4. Email quên mật khẩu: gói Free của Render chặn cổng SMTP, nên dùng [Brevo](https://www.brevo.com) (miễn phí 300 email/ngày): **Senders** → xác minh địa chỉ Gmail → **SMTP & API** → **API keys** → tạo key, điền vào `BREVO_API_KEY`, `MAIL_FROM=AuraMall <gmail-đã-xác-minh>`.
+
+Giới hạn gói Free của Render: web "ngủ" sau 15 phút không có truy cập (lượt mở đầu tiên chờ khoảng 1 phút); CSDL Free hết hạn sau 30 ngày (có 14 ngày để nâng gói trước khi bị xóa). Muốn chạy lâu dài: nâng gói, hoặc dùng CSDL Neon miễn phí và đổi biến `DATABASE_URL` của service.
+
+### Deploy lên Vercel (tùy chọn)
+Vercel chỉ chạy web tĩnh + hàm serverless, không chạy Docker/Nginx/PostgreSQL, nên bản Vercel gồm: thư mục `frontend` (tĩnh), toàn bộ API Express chạy thành 1 hàm serverless (`api/index.js`, cấu hình trong `vercel.json`) và **PostgreSQL trên mây** (ví dụ Neon).
+
+1. Tạo CSDL: Vercel → project → **Storage** → **Create Database** → **Neon** (gói Free), hoặc tạo trực tiếp tại neon.tech. Vercel tự thêm biến `DATABASE_URL`.
+2. Nạp bảng và dữ liệu mẫu (chạy 1 lần từ máy, cần `cd backend && npm ci` trước):
+   ```bash
+   DATABASE_URL="postgres://...?sslmode=require" node scripts/init-cloud-db.js
+   ```
+3. Thêm biến môi trường trên Vercel: `JWT_SECRET` (chuỗi ngẫu nhiên dài), `GOOGLE_CLIENT_ID`, `APP_URL=https://<tên>.vercel.app`, các biến `SMTP_*` nếu dùng quên mật khẩu.
+4. Deploy: `npx vercel --prod` (lần đầu `npx vercel login` và `npx vercel link`).
+5. Thêm `https://<tên>.vercel.app` vào **Authorized JavaScript origins** của Google OAuth client.
+
+Giới hạn khi chạy trên Vercel: mỗi request tối đa 4,5MB (ảnh lớn đã được giao diện tự thu nhỏ trước khi tải lên), không có Nginx nên không cân bằng tải/scale bằng `docker compose --scale` như bản Docker.
 
 Để kiểm tra trạng thái các container:
 ```bash
@@ -124,7 +167,8 @@ Hệ thống gồm 8 phân hệ màn hình chuẩn TMĐT:
   * Checkbox đồng ý Điều khoản dịch vụ; chuyển đổi nhanh sang màn Đăng nhập.
 * **Màn hình Đăng nhập**:
   * Đăng nhập linh hoạt bằng Tên đăng nhập / Email / Số điện thoại.
-  * Ghi nhớ đăng nhập (Remember me), Quên mật khẩu (liên hệ quản trị viên).
+  * Ghi nhớ đăng nhập (Remember me).
+  * **Quên mật khẩu**: nhập email → nhận liên kết đặt lại qua email (hiệu lực 30 phút, dùng 1 lần) → đặt mật khẩu mới và đăng nhập luôn. Không tiết lộ email nào đã đăng ký; mỗi tài khoản tối đa 3 yêu cầu/giờ.
   * **Đăng nhập với Google**: nút chính thức của Google; backend kiểm tra chữ ký ID token, email đã có tài khoản thì liên kết, chưa có thì tạo tài khoản mới.
   * Tự động lưu JWT Token và điều hướng quay lại trang người dùng đang duyệt dở (ví dụ trang chi tiết sản phẩm vừa bấm).
 

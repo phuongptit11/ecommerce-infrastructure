@@ -1,0 +1,44 @@
+# Render Blueprint: đưa AuraMall lên mạng chạy 24/7, không cần bật máy.
+# Render Dashboard > New > Blueprint > chọn repo này. Render tạo:
+#   - auramall-db: PostgreSQL (tầng lưu trữ)
+#   - auramall:    Node.js phục vụ cả giao diện (frontend) lẫn API (thay vai trò Nginx + backend)
+# Lần khởi động đầu, scripts/init-cloud-db.js tự nạp schema.sql + seed.sql vào CSDL trống.
+# Tên miền riêng: service auramall > Settings > Custom Domains (xem README, mục Deploy lên Render).
+
+databases:
+  - name: auramall-db
+    databaseName: ecommerce_db
+    user: ecommerce_user
+    plan: free
+    region: singapore
+    postgresMajorVersion: "15"
+
+services:
+  - type: web
+    name: auramall
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --prefix backend --omit=dev
+    startCommand: node scripts/init-cloud-db.js && node backend/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SERVE_FRONTEND
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: auramall-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      # Các biến dưới đây Render hỏi khi tạo Blueprint (để trống nếu chưa dùng)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: APP_URL # ví dụ https://duytu205.id.vn (trống thì dùng địa chỉ .onrender.com)
+        sync: false
+      - key: BREVO_API_KEY # gửi email quên mật khẩu (gói Free của Render chặn SMTP)
+        sync: false
+      - key: MAIL_FROM # ví dụ: AuraMall <email-đã-xác-minh-trên-Brevo@gmail.com>
+        sync: false

@@ -606,6 +606,8 @@ const ROUTES = [
   { re: /^\/checkout$/, view: 'checkout', auth: true, roles: ['user'] },
   { re: /^\/login$/, view: 'login', group: 'auth' },
   { re: /^\/register$/, view: 'register', group: 'auth' },
+  { re: /^\/forgot-password$/, view: 'forgotPassword', group: 'auth' },
+  { re: /^\/reset-password$/, view: 'resetPassword', group: 'auth' },
   { re: /^\/account(?:\/(profile|password))?$/, view: 'account', auth: true },
   { re: /^\/account\/(addresses|orders)$/, view: 'account', auth: true, roles: ['user'] },
   { re: /^\/account\/(products|revenue|sales)$/, view: 'account', auth: true, roles: ['seller'] },
@@ -2131,13 +2133,26 @@ function renderAuth(mode, { query, token }) {
   }
   const login = mode === 'login';
   const keep = query.get('redirect') ? `?redirect=${encodeURIComponent(query.get('redirect'))}` : '';
-  $('#view').innerHTML = `
+  $('#view').innerHTML = authLayout(
+    login ? 'Chào mừng trở lại' : 'Gia nhập AuraMall',
+    `<div class="tabs">
+      <a class="tab ${login ? 'is-active' : ''}" href="#/login${keep}">Đăng nhập</a>
+      <a class="tab ${login ? '' : 'is-active'}" href="#/register${keep}">Đăng ký</a>
+    </div>
+    ${login ? loginFormHtml(keep) : registerFormHtml(keep, query.get('type') === 'seller')}`
+  );
+  setupGoogleButton(mode, token);
+}
+
+// Khung chung của các trang tài khoản: ảnh + đặc quyền thành viên bên trái, form bên phải
+function authLayout(heading, formHtml) {
+  return `
     <section class="auth">
       <div class="auth-visual">
         <img src="/images/products/auraphone-pro.jpg" alt="">
         <div>
           <p class="eyebrow">Đặc quyền thành viên</p>
-          <h2>${login ? 'Chào mừng trở lại' : 'Gia nhập AuraMall'}</h2>
+          <h2>${esc(heading)}</h2>
           <p>Đăng nhập để xem chi tiết sản phẩm, lưu giỏ hàng, theo dõi đơn mua và nhận ưu đãi Flash Sale mỗi ngày.</p>
           <ul class="auth-perks">
             <li>${icon('bolt')}Flash Sale giảm đến 50% mỗi ngày</li>
@@ -2147,16 +2162,9 @@ function renderAuth(mode, { query, token }) {
         </div>
       </div>
       <div class="auth-form-wrap">
-        <div class="auth-form">
-          <div class="tabs">
-            <a class="tab ${login ? 'is-active' : ''}" href="#/login${keep}">Đăng nhập</a>
-            <a class="tab ${login ? '' : 'is-active'}" href="#/register${keep}">Đăng ký</a>
-          </div>
-          ${login ? loginFormHtml(keep) : registerFormHtml(keep, query.get('type') === 'seller')}
-        </div>
+        <div class="auth-form">${formHtml}</div>
       </div>
     </section>`;
-  setupGoogleButton(mode, token);
 }
 
 function passwordInput(id, name, autocomplete, role = '') {
@@ -2263,6 +2271,7 @@ const PASSWORD_RULES = {
   digit: (v) => /\d/.test(v),
 };
 const PHONE_RE = /^(0|\+84)[0-9]{9,10}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function updatePasswordHints() {
   const pw = $('[data-pw="new"]')?.value ?? '';
@@ -2309,6 +2318,125 @@ async function submitLogin(form, button) {
   }
 }
 
+// ---------- Quên mật khẩu: nhập email -> nhận liên kết qua email -> đặt mật khẩu mới ----------
+function viewForgotPassword({ query }) {
+  if (state.token) {
+    toast('Bạn đang đăng nhập, hãy đổi mật khẩu trong trang tài khoản.');
+    redirect('/account/password');
+    return;
+  }
+  renderForgotForm(query.get('email') || '');
+}
+
+function renderForgotForm(email = '') {
+  $('#view').innerHTML = authLayout(
+    'Lấy lại mật khẩu',
+    `<form data-form="forgot-password" novalidate>
+      <p class="eyebrow">Quên mật khẩu</p>
+      <h1 class="auth-title">Đặt lại mật khẩu</h1>
+      <p class="auth-lead">Nhập email đã đăng ký tài khoản. AuraMall sẽ gửi cho bạn liên kết đặt lại mật khẩu, có hiệu lực trong 30 phút.</p>
+      <div class="field">
+        <label for="forgotEmail">Email</label>
+        <input class="input" id="forgotEmail" name="email" type="email" autocomplete="email" placeholder="ban@vidu.com" value="${esc(email)}" required>
+      </div>
+      <button class="btn btn--solid btn--block" type="submit">Gửi liên kết đặt lại</button>
+      <p class="auth-switch">Đã nhớ mật khẩu? <a href="#/login" class="link-lux">Đăng nhập</a></p>
+    </form>`
+  );
+}
+
+async function submitForgotPassword(form, button) {
+  const email = form.email.value.trim();
+  if (!EMAIL_RE.test(email)) {
+    toast('Vui lòng nhập địa chỉ email hợp lệ.', 'error');
+    form.email.focus();
+    return;
+  }
+  setBusy(button, true, 'Đang gửi...');
+  try {
+    const res = await api('/api/auth/forgot-password', { method: 'POST', body: { email } });
+    $('.auth-form').innerHTML = `
+      <div class="auth-done">
+        <span class="auth-done-icon">${icon('check')}</span>
+        <p class="eyebrow">Đã gửi yêu cầu</p>
+        <h1 class="auth-title">Kiểm tra hộp thư</h1>
+        <p class="auth-lead">${esc(res.message)}</p>
+        <p class="auth-lead">Email: <strong>${esc(email)}</strong>. Không thấy thư sau vài phút? Hãy xem mục Spam hoặc gửi lại sau 1 phút.</p>
+        <button type="button" class="btn btn--block" data-action="forgot-again" data-email="${esc(email)}">Gửi lại / nhập email khác</button>
+        <p class="auth-switch"><a href="#/login" class="link-lux">Quay lại đăng nhập</a></p>
+      </div>`;
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(button, false);
+  }
+}
+
+// Mở từ liên kết trong email: #/reset-password?token=...
+async function viewResetPassword({ query, token: routeToken }) {
+  const resetToken = query.get('token') || '';
+  let email = '';
+  let error = '';
+  try {
+    const res = await api('/api/auth/reset-password/verify', { method: 'POST', body: { token: resetToken } });
+    email = res.data.email;
+  } catch (err) {
+    error = err.message;
+  }
+  if (stale(routeToken)) return;
+
+  if (error) {
+    $('#view').innerHTML = authLayout(
+      'Lấy lại mật khẩu',
+      `<div class="auth-done">
+        <span class="auth-done-icon is-bad">${icon('close')}</span>
+        <p class="eyebrow">Đặt lại mật khẩu</p>
+        <h1 class="auth-title">Liên kết không còn hiệu lực</h1>
+        <p class="auth-lead">${esc(error)}</p>
+        <a href="#/forgot-password" class="btn btn--solid btn--block">Gửi liên kết mới</a>
+        <p class="auth-switch"><a href="#/login" class="link-lux">Quay lại đăng nhập</a></p>
+      </div>`
+    );
+    return;
+  }
+
+  $('#view').innerHTML = authLayout(
+    'Lấy lại mật khẩu',
+    `<form data-form="reset-password" novalidate>
+      <p class="eyebrow">Đặt lại mật khẩu</p>
+      <h1 class="auth-title">Tạo mật khẩu mới</h1>
+      <p class="auth-lead">Tài khoản: <strong>${esc(email)}</strong></p>
+      <input type="hidden" name="token" value="${esc(resetToken)}">
+      ${newPasswordFields('Mật khẩu mới', { id: 'resetPw', name: 'newPassword' })}
+      <button class="btn btn--solid btn--block" type="submit">Đặt lại mật khẩu</button>
+      <p class="auth-switch"><a href="#/login" class="link-lux">Quay lại đăng nhập</a></p>
+    </form>`
+  );
+}
+
+async function submitResetPassword(form, button) {
+  const newPassword = form.newPassword.value;
+  const confirmPassword = form.confirmPassword.value;
+  let error = '';
+  if (!Object.values(PASSWORD_RULES).every((rule) => rule(newPassword)))
+    error = 'Mật khẩu tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số.';
+  else if (newPassword !== confirmPassword) error = 'Mật khẩu nhập lại không khớp.';
+  if (error) {
+    toast(error, 'error');
+    return;
+  }
+  setBusy(button, true, 'Đang lưu...');
+  try {
+    const res = await api('/api/auth/reset-password', {
+      method: 'POST',
+      body: { token: form.token.value, newPassword, confirmPassword },
+    });
+    finishAuth(res, 'Đặt lại mật khẩu thành công, bạn đã được đăng nhập!');
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(button, false);
+  }
+}
+
 async function submitRegister(form, button) {
   const data = {
     username: form.username.value.trim(),
@@ -2321,7 +2449,7 @@ async function submitRegister(form, button) {
   let error = '';
   if (!data.username || !data.email || !data.phone || !data.password) error = 'Vui lòng điền đầy đủ tất cả các trường thông tin.';
   else if (!/^[a-zA-Z0-9_]{3,30}$/.test(data.username)) error = 'Tên đăng nhập 3 - 30 ký tự, chỉ gồm chữ, số và dấu gạch dưới.';
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) error = 'Địa chỉ email không đúng định dạng.';
+  else if (!EMAIL_RE.test(data.email)) error = 'Địa chỉ email không đúng định dạng.';
   else if (!PHONE_RE.test(data.phone)) error = 'Số điện thoại phải gồm 10 hoặc 11 chữ số.';
   else if (!Object.values(PASSWORD_RULES).every((rule) => rule(data.password)))
     error = 'Mật khẩu tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số.';
@@ -3475,6 +3603,8 @@ const VIEWS = {
   checkout: viewCheckout,
   login: viewLogin,
   register: viewRegister,
+  forgotPassword: viewForgotPassword,
+  resetPassword: viewResetPassword,
   account: viewAccount,
   sell: viewSell,
   admin: viewAdmin,
@@ -3594,7 +3724,12 @@ const ACTIONS = {
     el.textContent = show ? 'Ẩn' : 'Hiện';
     el.setAttribute('aria-label', show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
   },
-  'forgot-password': () => toast('Vui lòng liên hệ quản trị viên (hotline 1900 8899) để được cấp lại mật khẩu.'),
+  // Ô đăng nhập đang là email thì điền sẵn sang trang quên mật khẩu
+  'forgot-password': () => {
+    const login = $('#loginId')?.value.trim() || '';
+    go(`/forgot-password${EMAIL_RE.test(login) ? `?email=${encodeURIComponent(login)}` : ''}`);
+  },
+  'forgot-again': (el) => renderForgotForm(el.dataset.email),
   'google-unavailable': () =>
     toast('Đăng nhập Google chưa được bật: quản trị viên cần đặt GOOGLE_CLIENT_ID cho backend (xem README).', 'error'),
   'avatar-pick': () => $('#avatarFile')?.click(),
@@ -3652,6 +3787,8 @@ const FORMS = {
   },
   login: submitLogin,
   register: submitRegister,
+  'forgot-password': submitForgotPassword,
+  'reset-password': submitResetPassword,
   profile: submitProfile,
   address: submitAddress,
   'pick-address': (form) => {

@@ -1,0 +1,14 @@
+# Không tải lên Vercel: bí mật, thư viện cài sẵn trên máy (Vercel tự cài lại), file chỉ dùng cho Docker / kiểm thử
+.env
+.env.*
+backend/node_modules
+node_modules
+nginx
+loadtest
+docs
+scripts/*.sh
+scripts/*.ps1
+backup
+*.log
+*.sql.gz
+*.tar

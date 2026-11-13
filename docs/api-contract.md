@@ -177,6 +177,24 @@ Giao diện lấy Client ID để hiện nút Google: `{ "status": "success", "d
 - Tài khoản tạo bằng Google chưa có mật khẩu thì bỏ qua `currentPassword` (đặt mật khẩu lần đầu).
 - Sai mật khẩu hiện tại, mật khẩu mới yếu, nhập lại không khớp hoặc trùng mật khẩu cũ: `400`.
 
+### `POST /api/auth/forgot-password`
+Quên mật khẩu: gửi liên kết đặt lại qua email. Body: `{ "email": "user@auramall.vn" }`.
+
+- Luôn trả `200` với cùng một thông báo dù email có tồn tại hay không (không dò được email nào đã đăng ký). Email sai định dạng: `400`.
+- Liên kết có dạng `<APP_URL>/#/reset-password?token=<mã>`, hiệu lực **30 phút**, dùng được **1 lần**. CSDL chỉ lưu SHA-256 của mã (bảng `password_resets`).
+- Chống spam: mỗi tài khoản cách nhau tối thiểu 1 phút và tối đa 3 lần mỗi giờ (vượt thì bỏ qua, vẫn trả `200`).
+- Chưa cấu hình `SMTP_HOST` thì nội dung email được in ra log backend (`docker compose logs backend`).
+
+### `POST /api/auth/reset-password/verify`
+Kiểm tra liên kết trước khi hiện form. Body: `{ "token": "<mã trong liên kết>" }`.
+Hợp lệ: `{ "status": "success", "data": { "email": "us***@auramall.vn" } }`; sai / hết hạn / đã dùng: `400`.
+
+### `POST /api/auth/reset-password`
+Đặt mật khẩu mới. Body: `{ "token": "<mã>", "newPassword": "Matkhaumoi1", "confirmPassword": "Matkhaumoi1" }`.
+
+- Thành công: phản hồi giống đăng nhập (`token` + `user`), mọi liên kết đặt lại khác của tài khoản bị vô hiệu.
+- Mã sai / hết hạn / đã dùng, mật khẩu yếu hoặc nhập lại không khớp: `400`.
+
 ---
 
 ### `GET /api/auth/me`

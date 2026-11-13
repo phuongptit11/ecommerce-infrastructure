@@ -4,7 +4,9 @@ const express = require('express');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const crypto = require('crypto');
+const path = require('path');
 const swaggerUi = require('swagger-ui-express');
+const nodemailer = require('nodemailer');
 const { Pool, types } = require('pg');
 const openapiSpec = require('./openapi');
 
@@ -30,15 +32,36 @@ const ROLES = ['admin', 'seller', 'user'];
 const SELF_SIGNUP_ROLES = ['user', 'seller']; // quyền admin chỉ do admin khác cấp
 const ORDER_STATUSES = ['CREATED', 'CONFIRMED', 'DELIVERING', 'COMPLETED', 'CANCELLED'];
 const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+const EMAIL_RULE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Connection pool PostgreSQL
+// Quên mật khẩu: liên kết đặt lại có hiệu lực 30 phút, mỗi tài khoản tối đa 3 lần yêu cầu mỗi giờ
+const RESET_TOKEN_TTL_MINUTES = 30;
+const RESET_REQUESTS_PER_HOUR = 3;
+const RESET_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/; // 32 byte ngẫu nhiên dạng base64url
+// Địa chỉ website ghi vào email. Không lấy từ header Host của request để kẻ xấu không chèn được tên miền giả.
+const APP_URL = (
+  process.env.APP_URL ||
+  process.env.RENDER_EXTERNAL_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost')
+)
+  .trim()
+  .replace(/\/+$/, '');
+
+// Connection pool PostgreSQL: chạy Docker dùng các biến DB_*; chạy trên Vercel dùng DATABASE_URL
+// (chuỗi kết nối CSDL trên mây như Neon, đã kèm sslmode=require)
+const DATABASE_URL = (process.env.DATABASE_URL || process.env.POSTGRES_URL || '').trim();
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || 'ecommerce_db',
-  user: process.env.DB_USER || 'ecommerce_user',
-  password: process.env.DB_PASSWORD,
-  max: Number(process.env.DB_POOL_MAX) || 10,
+  ...(DATABASE_URL
+    ? { connectionString: DATABASE_URL }
+    : {
+        host: process.env.DB_HOST || 'localhost',
+        port: Number(process.env.DB_PORT) || 5432,
+        database: process.env.DB_NAME || 'ecommerce_db',
+        user: process.env.DB_USER || 'ecommerce_user',
+        password: process.env.DB_PASSWORD,
+      }),
+  // Mỗi hàm serverless trên Vercel giữ ít kết nối để không vượt giới hạn của CSDL
+  max: Number(process.env.DB_POOL_MAX) || (process.env.VERCEL ? 3 : 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
@@ -256,6 +279,49 @@ function parseId(value, name) {
   return id;
 }
 
+// ==========================================
+// GỬI EMAIL QUA SMTP (Gmail, SendGrid, Mailtrap...).
+// Chưa đặt SMTP_HOST thì in email ra log backend (docker compose logs backend) để thử trên máy.
+// ==========================================
+const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
+const mailer = process.env.SMTP_HOST
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: SMTP_PORT,
+      secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : SMTP_PORT === 465,
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+    })
+  : null;
+const MAIL_FROM = process.env.MAIL_FROM || `AuraMall <${process.env.SMTP_USER || 'no-reply@auramall.local'}>`;
+
+async function sendMail({ to, subject, text, html }) {
+  // Render gói Free chặn cổng SMTP (25/465/587): khi có BREVO_API_KEY thì gửi qua HTTPS API của Brevo (miễn phí 300 email/ngày)
+  if (process.env.BREVO_API_KEY) {
+    const named = MAIL_FROM.match(/^(.*)<([^>]+)>$/);
+    const sender = named ? { name: named[1].trim(), email: named[2].trim() } : { email: MAIL_FROM.trim() };
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ sender, to: [{ email: to }], subject, textContent: text, htmlContent: html }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`Brevo API ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    return;
+  }
+  if (!mailer) {
+    console.log(`[EMAIL chưa cấu hình SMTP, chỉ in ra log]\nĐến: ${to}\nTiêu đề: ${subject}\n${text}`);
+    return;
+  }
+  await mailer.sendMail({ from: MAIL_FROM, to, subject, text, html });
+}
+
+function escapeHtml(value) {
+  const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return String(value).replace(/[&<>"']/g, (c) => map[c]);
+}
+
+const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+
 // Format che email dạng ab***@gmail.com
 function maskEmail(email) {
   if (!email || !email.includes('@')) return email;
@@ -314,6 +380,20 @@ async function cleanupOrphanUploads() {
   } catch (err) {
     console.warn('Lưu ý cleanupOrphanUploads:', err.message);
   }
+}
+
+// Xóa mã đặt lại mật khẩu đã quá 1 ngày (đã dùng hoặc hết hạn từ lâu)
+async function cleanupPasswordResets() {
+  try {
+    await pool.query(`DELETE FROM password_resets WHERE created_at < NOW() - INTERVAL '1 day'`);
+  } catch (err) {
+    console.warn('Lưu ý cleanupPasswordResets:', err.message);
+  }
+}
+
+async function runCleanupJobs() {
+  await cleanupOrphanUploads();
+  await cleanupPasswordResets();
 }
 
 // Kiểm tra dữ liệu form đăng bán / sửa sản phẩm
@@ -388,6 +468,26 @@ async function findOwnProduct(productId, user) {
 const app = express();
 
 app.set('trust proxy', 1);
+
+// Chạy không có Nginx (Render): backend tự phục vụ giao diện trong thư mục frontend, cùng header như nginx.conf.
+// Đặt trước helmet để trang web không bị CSP của API chặn script đăng nhập Google.
+if (process.env.SERVE_FRONTEND === 'true') {
+  const frontendDir = path.join(__dirname, '..', 'frontend');
+  const securityHeaders = (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+  };
+  app.use('/images', express.static(path.join(frontendDir, 'images'), { maxAge: '7d', setHeaders: securityHeaders }));
+  app.use(
+    express.static(frontendDir, {
+      setHeaders: (res) => {
+        securityHeaders(res);
+        res.setHeader('Cache-Control', 'no-cache'); // trình duyệt luôn kiểm tra lại để nhận code mới
+      },
+    })
+  );
+}
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -454,7 +554,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   // Validate email
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+  if (!EMAIL_RULE.test(cleanEmail)) {
     throw new HttpError(400, 'Địa chỉ email không đúng định dạng.');
   }
 
@@ -631,6 +731,136 @@ app.put('/api/auth/password', requireAuth, async (req, res) => {
     req.user.userId,
   ]);
   res.json({ status: 'success', message: currentHash ? 'Đổi mật khẩu thành công.' : 'Đặt mật khẩu thành công.' });
+});
+
+// Tìm mã đặt lại mật khẩu còn hiệu lực (chưa dùng, chưa hết hạn). CSDL chỉ lưu SHA-256 của mã.
+async function findPasswordReset(db, token, forUpdate = false) {
+  if (typeof token !== 'string' || !RESET_TOKEN_RE.test(token)) return null;
+  const result = await db.query(
+    `SELECT r.id, r.user_id, u.email, u.username
+     FROM password_resets r JOIN users u ON u.id = r.user_id
+     WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > NOW()
+     ${forUpdate ? 'FOR UPDATE OF r' : ''}`,
+    [sha256(token)]
+  );
+  return result.rows[0] || null;
+}
+
+const RESET_LINK_INVALID = 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.';
+
+// Quên mật khẩu: gửi liên kết đặt lại qua email.
+// Luôn trả cùng một thông báo dù email có tồn tại hay không, để không ai dò được email nào đã đăng ký.
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = String((req.body || {}).email ?? '').trim().toLowerCase();
+  if (!EMAIL_RULE.test(email)) {
+    throw new HttpError(400, 'Vui lòng nhập địa chỉ email hợp lệ.');
+  }
+
+  const found = await pool.query('SELECT id, username, email FROM users WHERE LOWER(email) = $1', [email]);
+  const user = found.rows[0];
+  if (user) {
+    // Chống spam hộp thư: cách nhau ít nhất 1 phút, tối đa RESET_REQUESTS_PER_HOUR lần mỗi giờ (vượt thì bỏ qua, không báo)
+    const recent = await pool.query(
+      `SELECT COUNT(*) AS total, COALESCE(MAX(created_at) > NOW() - INTERVAL '1 minute', FALSE) AS too_soon
+       FROM password_resets WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [user.id]
+    );
+    const { total, too_soon: tooSoon } = recent.rows[0];
+    if (!tooSoon && total < RESET_REQUESTS_PER_HOUR) {
+      const token = crypto.randomBytes(32).toString('base64url');
+      await pool.query(
+        `INSERT INTO password_resets (user_id, token_hash, expires_at)
+         VALUES ($1, $2, NOW() + make_interval(mins => $3))`,
+        [user.id, sha256(token), RESET_TOKEN_TTL_MINUTES]
+      );
+      const link = `${APP_URL}/#/reset-password?token=${token}`;
+      try {
+        await sendMail({
+          to: user.email,
+          subject: 'AuraMall - Đặt lại mật khẩu',
+          text: [
+            `Xin chào ${user.username},`,
+            '',
+            'Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản AuraMall của bạn.',
+            `Mở liên kết sau để đặt mật khẩu mới (hiệu lực ${RESET_TOKEN_TTL_MINUTES} phút, chỉ dùng được 1 lần):`,
+            link,
+            '',
+            'Nếu bạn không yêu cầu, hãy bỏ qua email này, mật khẩu hiện tại vẫn giữ nguyên.',
+          ].join('\n'),
+          html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a">
+  <p style="font-size:20px;letter-spacing:4px;margin:0 0 16px"><b>AURA</b>MALL</p>
+  <p>Xin chào <b>${escapeHtml(user.username)}</b>,</p>
+  <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản AuraMall của bạn.</p>
+  <p><a href="${escapeHtml(link)}" style="display:inline-block;background:#000;color:#fff;padding:12px 28px;text-decoration:none;letter-spacing:2px">ĐẶT LẠI MẬT KHẨU</a></p>
+  <p>Liên kết có hiệu lực trong ${RESET_TOKEN_TTL_MINUTES} phút và chỉ dùng được 1 lần.</p>
+  <p style="color:#666">Nếu bạn không yêu cầu, hãy bỏ qua email này, mật khẩu hiện tại vẫn giữ nguyên.</p>
+</div>`,
+        });
+      } catch (err) {
+        console.error('Gửi email đặt lại mật khẩu thất bại:', err.message);
+      }
+    }
+  }
+
+  res.json({
+    status: 'success',
+    message: 'Nếu email này đã đăng ký, AuraMall đã gửi liên kết đặt lại mật khẩu. Vui lòng kiểm tra hộp thư (cả mục Spam).',
+  });
+});
+
+// Kiểm tra liên kết đặt lại mật khẩu trước khi hiện form (mã gửi trong body để không lọt vào log truy cập)
+app.post('/api/auth/reset-password/verify', async (req, res) => {
+  const reset = await findPasswordReset(pool, (req.body || {}).token);
+  if (!reset) {
+    throw new HttpError(400, RESET_LINK_INVALID);
+  }
+  res.json({ status: 'success', data: { email: maskEmail(reset.email) } });
+});
+
+// Đặt lại mật khẩu bằng mã trong email, xong thì đăng nhập luôn
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, newPassword, confirmPassword } = req.body || {};
+  if (typeof newPassword !== 'string' || !PASSWORD_RULE.test(newPassword)) {
+    throw new HttpError(400, 'Mật khẩu mới tối thiểu 8 ký tự, phải bao gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số.');
+  }
+  if (newPassword !== confirmPassword) {
+    throw new HttpError(400, 'Mật khẩu nhập lại không khớp.');
+  }
+
+  const client = await pool.connect();
+  let user;
+  try {
+    await client.query('BEGIN');
+    // Khóa dòng mã để 2 request cùng lúc không dùng được một mã 2 lần
+    const reset = await findPasswordReset(client, token, true);
+    if (!reset) {
+      throw new HttpError(400, RESET_LINK_INVALID);
+    }
+    const updated = await client.query(
+      `UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+       RETURNING id, username, email, phone, gender, birthday, avatar_url, role`,
+      [hashPassword(newPassword), reset.user_id]
+    );
+    user = updated.rows[0];
+    // Vô hiệu mọi liên kết đặt lại khác của tài khoản này
+    await client.query('UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND used_at IS NULL', [
+      reset.user_id,
+    ]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const authToken = generateToken({ userId: user.id, username: user.username }, 86400 * 2);
+  res.json({
+    status: 'success',
+    message: 'Đặt lại mật khẩu thành công!',
+    token: authToken,
+    user: authUser(user),
+  });
 });
 
 // Lấy thông tin tài khoản hiện tại (Me)
@@ -1886,13 +2116,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ status: 'error', message: 'Lỗi máy chủ nội bộ.' });
 });
 
-// Khởi chạy HTTP Server
-const server = app.listen(PORT, () => {
-  console.log(`Backend Auramall đang chạy tại cổng ${PORT}`);
-  autoMigrateDatabase().then(cleanupOrphanUploads);
-  setInterval(cleanupOrphanUploads, 3600 * 1000).unref();
-});
-
 // Ảnh của 24 sản phẩm mẫu, lưu tại frontend/images/products để Nginx phục vụ trực tiếp (nguồn ảnh: CREDITS.md)
 const SEED_PRODUCT_IMAGES = {
   1: ['akko-3087.jpg', 'akko-3087-2.jpg', 'akko-3087-3.jpg'],
@@ -2006,6 +2229,16 @@ async function autoMigrateDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_uploaded_images_owner ON uploaded_images(owner_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash CHAR(64) UNIQUE NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        used_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
     `);
 
     // 1. Kiểm tra nạp danh mục
@@ -2118,16 +2351,30 @@ async function autoMigrateDatabase() {
   }
 }
 
-server.keepAliveTimeout = 65000;
-server.headersTimeout = 66000;
-
-function shutdown(signal) {
-  console.log(`Nhận ${signal}, đang dừng backend...`);
-  server.close(() => {
-    pool.end().then(() => process.exit(0));
+// Khởi chạy HTTP Server khi chạy trực tiếp (node server.js trong Docker).
+// Trên Vercel, api/index.js import app làm serverless function nên không gọi listen.
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    console.log(`Backend Auramall đang chạy tại cổng ${PORT}`);
+    autoMigrateDatabase().then(runCleanupJobs);
+    setInterval(runCleanupJobs, 3600 * 1000).unref();
   });
-  setTimeout(() => process.exit(1), 10000).unref();
+
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+
+  const shutdown = (signal) => {
+    console.log(`Nhận ${signal}, đang dừng backend...`);
+    server.close(() => {
+      pool.end().then(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(1), 10000).unref();
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+module.exports = app;
+module.exports.pool = pool;
+module.exports.autoMigrateDatabase = autoMigrateDatabase;

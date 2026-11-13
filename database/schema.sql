@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS uploaded_images (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Bảng mã đặt lại mật khẩu (Quên mật khẩu): chỉ lưu SHA-256 của mã, mã gốc chỉ nằm trong email gửi người dùng
+CREATE TABLE IF NOT EXISTS password_resets (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash CHAR(64) UNIQUE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL, -- hiệu lực 30 phút
+    used_at TIMESTAMP WITH TIME ZONE, -- đã dùng thì không dùng lại được
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Tối ưu hóa chỉ mục (Indexes) theo tiêu chuẩn hiệu năng hạ tầng TMĐT
 CREATE INDEX IF NOT EXISTS idx_products_id ON products(id);
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
@@ -120,3 +130,4 @@ CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_user_addresses_user_id ON user_addresses(user_id);
 CREATE INDEX IF NOT EXISTS idx_uploaded_images_owner ON uploaded_images(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);

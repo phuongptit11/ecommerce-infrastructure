@@ -210,6 +210,32 @@ Content-Type: application/json
 GET {{baseUrl}}/api/auth/config
 Accept: application/json
 
+### 26. Quên mật khẩu (luôn 200; chưa cấu hình SMTP thì liên kết in ra: docker compose logs backend)
+POST {{baseUrl}}/api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "user@auramall.vn"
+}
+
+### 27. Kiểm tra liên kết đặt lại (mã sai -> 400)
+POST {{baseUrl}}/api/auth/reset-password/verify
+Content-Type: application/json
+
+{
+  "token": "dan-ma-43-ky-tu-trong-lien-ket-email-vao-day"
+}
+
+### 28. Đặt lại mật khẩu bằng mã trong email (thành công trả token như đăng nhập)
+POST {{baseUrl}}/api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "dan-ma-43-ky-tu-trong-lien-ket-email-vao-day",
+  "newPassword": "Matkhaumoi1",
+  "confirmPassword": "Matkhaumoi1"
+}
+
 ### Đăng nhập tài khoản quản trị mẫu
 # @name adminLogin
 POST {{baseUrl}}/api/auth/login
