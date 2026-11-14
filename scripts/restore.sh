@@ -1,49 +1,91 @@
 #!/bin/bash
-# ========================================================
-# KỊCH BẢN PHỤC HỒI CƠ SỞ DỮ LIỆU AURAMALL (ĐỀ TÀI 07)
-# Thực hiện phục hồi dữ liệu từ bản sao lưu .sql hoặc .sql.gz
-# ========================================================
+# ==============================================================================
+# KỊCH BẢN PHỤC HỒI CSDL AURAMALL (TẦNG 3: POSTGRESQL 15)
+# Cách 1 (Từ file backup): bash scripts/restore.sh backups/ten_file.sql
+# Cách 2 (Reset về gốc):   bash scripts/restore.sh --reset
+# ==============================================================================
 
 set -e
 
-BACKUP_FILE="$1"
-DB_CONTAINER="${DB_CONTAINER:-ecommerce_database}"
-DB_USER="${DB_USER:-ecommerce_user}"
+# Tự động nạp biến môi trường từ file .env (nếu có)
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
+CONTAINER_NAME="ecommerce_database"
 DB_NAME="${DB_NAME:-ecommerce_db}"
+DB_USER="${DB_USER:-ecommerce_user}"
+DB_PASSWORD="${DB_PASSWORD:-ecommerce_secret}"
 
-if [ -z "$BACKUP_FILE" ]; then
-    echo "Cách sử dụng: ./scripts/restore.sh <duong_dan_tep_backup>"
-    echo "Ví dụ: ./scripts/restore.sh ./database/backups/auramall_backup_20261103_120000.sql.gz"
+# Kiểm tra container ecommerce_database có đang chạy không
+if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "❌ Lỗi: Container '${CONTAINER_NAME}' chưa chạy!"
+    echo "👉 Hãy chạy: docker compose up -d"
     exit 1
 fi
 
-if [ ! -f "$BACKUP_FILE" ]; then
-    echo "LỖI: Tệp sao lưu không tồn tại: $BACKUP_FILE"
+# Kiểm tra tham số đầu vào
+if [ -z "$1" ]; then
+    echo "⚠️  Vui lòng truyền đường dẫn file backup hoặc cờ --reset!"
+    echo "   👉 Phục hồi từ file: bash scripts/restore.sh <file_backup.sql>"
+    echo "   👉 Reset về ban đầu: bash scripts/restore.sh --reset"
+    if [ -d "./backups" ] && [ "$(ls -A ./backups 2>/dev/null)" ]; then
+        echo ""
+        echo "📂 Danh sách file backup hiện có:"
+        ls -1t ./backups/*.sql* 2>/dev/null | head -n 5
+    fi
     exit 1
 fi
 
-echo "=========================================="
-echo "CẢNH BÁO: Thao tác này sẽ ghi đè toàn bộ dữ liệu hiện tại của $DB_NAME"
-echo "Tệp phục hồi: $BACKUP_FILE"
-echo "Container: $DB_CONTAINER"
-echo "=========================================="
-read -p "Bạn có chắc chắn muốn tiếp tục không? (y/N): " CONFIRM
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-    echo "Đã hủy thao tác phục hồi."
+# Hàm làm sạch schema public để tránh xung đột khóa ngoại & bảng cũ
+clean_schema() {
+    echo "🧹 Đang làm sạch schema public trên '${DB_NAME}'..."
+    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -c "
+            DROP SCHEMA public CASCADE;
+            CREATE SCHEMA public;
+            GRANT ALL ON SCHEMA public TO $DB_USER;
+            GRANT ALL ON SCHEMA public TO public;
+        " > /dev/null
+}
+
+# CHẾ ĐỘ 1: Reset trực tiếp từ volume mount (/docker-entrypoint-initdb.d/)
+if [ "$1" == "--reset" ]; then
+    clean_schema
+    echo "📐 [1/2] Đang chạy lại 01-schema.sql trong container..."
+    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f /docker-entrypoint-initdb.d/01-schema.sql > /dev/null
+
+    echo "🌱 [2/2] Đang chạy lại 02-seed.sql trong container..."
+    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f /docker-entrypoint-initdb.d/02-seed.sql > /dev/null
+
+    echo "🔄 Đang khởi động lại tầng Backend để đồng bộ миграции/ảnh sản phẩm..."
+    docker compose restart backend
+    echo "✅ Đã khôi phục CSDL AuraMall về trạng thái gốc (schema + seed) thành công!"
     exit 0
 fi
 
-# Kiểm tra container database
-if ! docker ps --format '{{.Names}}' | grep -w "$DB_CONTAINER" > /dev/null; then
-    echo "LỖI: Container $DB_CONTAINER không hoạt động. Vui lòng bật hệ thống trước."
+# CHẾ ĐỘ 2: Restore từ file backup truyền vào
+BACKUP_FILE="$1"
+
+if [ ! -f "$BACKUP_FILE" ]; then
+    echo "❌ Lỗi: Không tìm thấy file '$BACKUP_FILE'!"
     exit 1
 fi
 
-echo "Đang phục hồi dữ liệu..."
+clean_schema
+echo "📥 Đang nạp dữ liệu từ '$BACKUP_FILE' vào container '${CONTAINER_NAME}'..."
+
 if [[ "$BACKUP_FILE" == *.gz ]]; then
-    gunzip -c "$BACKUP_FILE" | docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME"
+    gunzip -c "$BACKUP_FILE" | docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" > /dev/null
 else
-    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE"
+    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE" > /dev/null
 fi
 
-echo "Phục hồi cơ sở dữ liệu thành công hoàn tất!"
+echo "🔄 Đang khởi động lại service backend..."
+docker compose restart backend
+
+echo "✅ Phục hồi dữ liệu từ '$BACKUP_FILE' hoàn tất!"
