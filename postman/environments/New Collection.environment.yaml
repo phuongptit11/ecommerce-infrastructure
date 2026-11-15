@@ -1,0 +1,4 @@
+name: New Collection
+values:
+  - key: baseUrl
+    value: 'http://localhost'
