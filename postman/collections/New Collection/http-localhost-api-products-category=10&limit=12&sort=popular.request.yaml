@@ -1,0 +1,38 @@
+$kind: http-request
+name: http://localhost/api/products?category=10&limit=12&sort=popular
+description: |-
+  Generated from cURL: curl --url 'http://localhost/api/products?category=10&limit=12&sort=popular' \
+    -H 'Accept: application/json' \
+    -H 'Accept-Language: vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5' \
+    -H 'Authorization: {{bearer_token_19g2}}' \
+    -H 'Connection: keep-alive' \
+    -b 'ajs_anonymous_id=a06cf432-2fb1-4e28-9aac-0298c5f601f4' \
+    -H 'Referer: http://localhost/' \
+    -H 'Sec-Fetch-Dest: empty' \
+    -H 'Sec-Fetch-Mode: cors' \
+    -H 'Sec-Fetch-Site: same-origin' \
+    -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36' \
+    -H 'sec-ch-ua: "Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"' \
+    -H 'sec-ch-ua-mobile: ?0' \
+    -H 'sec-ch-ua-platform: "Windows"'
+url: "{{baseUrl}}/api/products?category=10&limit=12&sort=popular"
+method: GET
+headers:
+  Accept: application/json
+  Accept-Language: vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5
+  Authorization: "{{bearer_token_19g2}}"
+  Connection: keep-alive
+  Referer: http://localhost/
+  Sec-Fetch-Dest: empty
+  Sec-Fetch-Mode: cors
+  Sec-Fetch-Site: same-origin
+  User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36
+  sec-ch-ua: '"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"'
+  sec-ch-ua-mobile: ?0
+  sec-ch-ua-platform: '"Windows"'
+  Cookie: ajs_anonymous_id=a06cf432-2fb1-4e28-9aac-0298c5f601f4
+queryParams:
+  category: "10"
+  limit: "12"
+  sort: popular
+order: 1000
