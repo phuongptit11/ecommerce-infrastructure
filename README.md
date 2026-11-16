@@ -137,8 +137,16 @@ Dành cho kiến trúc Serverless siêu nhẹ với chi phí 0đ:
 
 *(Nếu chưa cấu hình `GOOGLE_CLIENT_ID`, bạn cứ để trống trong `.env`. Hệ thống sẽ tắt nút Google và dùng đăng nhập truyền thống, không ảnh hưởng các chức năng khác).*
 
-### 2. Gửi Email Quên Mật Khẩu (SMTP / Brevo API)
-Chức năng Quên mật khẩu gửi liên kết đặt lại qua email, có hiệu lực 30 phút và chỉ sử dụng được 1 lần:
+### 2. Gửi Email Quên Mật Khẩu (Gmail API / SMTP / Brevo API)
+Chức năng Quên mật khẩu gửi liên kết đặt lại qua email, có hiệu lực 30 phút và chỉ sử dụng được 1 lần.
+Kiểm tra cấu hình: mở `/health` xem trường `email` (`gmail` / `brevo` / `smtp` / `log` = chưa cấu hình), hoặc đăng nhập admin → **Quản trị → Tổng quan → Gửi email thử**.
+
+- **Gmail API (khuyên dùng, chạy được cả trên Render gói Free):** gửi bằng chính hộp thư Gmail qua HTTPS.
+  1. [Google Cloud Console](https://console.cloud.google.com/apis/library/gmail.googleapis.com) → chọn đúng project → **Gmail API** → **Enable**.
+  2. **Google Auth Platform → Audience**: ứng dụng phải ở trạng thái **In production** (ở chế độ Testing, refresh token hết hạn sau 7 ngày).
+  3. **Google Auth Platform → Clients → Create client** → Application type **Desktop app** → **Create** → **Download JSON**.
+  4. Trong thư mục dự án chạy `node scripts/gmail-auth.js <file client_secret_xxx.json>` → trình duyệt mở ra → đăng nhập Gmail dùng để gửi → nếu Google báo chưa xác minh: **Advanced → Go to ...** → **Allow**. Script tự ghi `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `MAIL_FROM` vào `.env` và gửi thử 1 email.
+  5. Docker: `docker compose up -d`. Render: service → **Environment** → thêm 4 biến trên (lấy giá trị trong `.env`) → **Save**.
 - **Chạy Local (Gmail SMTP):** Khai báo vào file `.env`:
   ```env
   APP_URL=http://localhost

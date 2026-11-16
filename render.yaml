@@ -38,7 +38,14 @@ services:
         sync: false
       - key: APP_URL # ví dụ https://duytu205.id.vn (trống thì dùng địa chỉ .onrender.com)
         sync: false
-      - key: BREVO_API_KEY # gửi email quên mật khẩu (gói Free của Render chặn SMTP)
+      # Gửi email quên mật khẩu (gói Free của Render chặn SMTP): Gmail API hoặc Brevo, chọn một
+      - key: GMAIL_CLIENT_ID # 3 biến GMAIL_* tạo bằng: node scripts/gmail-auth.js <client_secret.json>
         sync: false
-      - key: MAIL_FROM # ví dụ: AuraMall <email-đã-xác-minh-trên-Brevo@gmail.com>
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM # ví dụ: AuraMall <gmail-đã-cấp-quyền@gmail.com>
         sync: false

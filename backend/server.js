@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 const nodemailer = require('nodemailer');
+const gmail = require('./gmail');
 const { Pool, types } = require('pg');
 const openapiSpec = require('./openapi');
 
@@ -293,15 +294,28 @@ const mailer = process.env.SMTP_HOST
     })
   : null;
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
+// Gmail API (OAuth refresh token, quyền gmail.send): gửi bằng chính hộp thư Gmail, đi qua HTTPS nên chạy được trên Render Free
+const GMAIL = gmail.configFromEnv(process.env);
 const MAIL_FROM = (process.env.MAIL_FROM || '').trim() || `AuraMall <${process.env.SMTP_USER || 'no-reply@auramall.local'}>`;
-// Cách gửi email đang dùng: brevo (HTTPS API) > smtp > log (chưa cấu hình, chỉ in ra log)
-const MAIL_TRANSPORT = BREVO_API_KEY ? 'brevo' : mailer ? 'smtp' : 'log';
-const MAIL_TRANSPORT_LABEL = { brevo: 'Brevo API', smtp: `SMTP ${process.env.SMTP_HOST}:${SMTP_PORT}`, log: 'Chưa cấu hình (chỉ in ra log)' };
+// Cách gửi email đang dùng: gmail > brevo (HTTPS API) > smtp > log (chưa cấu hình, chỉ in ra log)
+const MAIL_TRANSPORT = GMAIL.complete ? 'gmail' : BREVO_API_KEY ? 'brevo' : mailer ? 'smtp' : 'log';
+const MAIL_TRANSPORT_LABEL = {
+  gmail: 'Gmail API',
+  brevo: 'Brevo API',
+  smtp: `SMTP ${process.env.SMTP_HOST}:${SMTP_PORT}`,
+  log: 'Chưa cấu hình (chỉ in ra log)',
+};
 
 // Lỗi cấu hình thấy được ngay khi khởi động (xem log trên Render / docker compose logs backend)
 function mailConfigProblem() {
+  if (GMAIL.partial) {
+    return 'Thiếu một trong 3 biến GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN: chạy "node scripts/gmail-auth.js <file client_secret.json>" để tạo đủ.';
+  }
   if (MAIL_TRANSPORT === 'log') {
-    return 'Chưa cấu hình gửi email: đặt BREVO_API_KEY + MAIL_FROM (Render) hoặc SMTP_HOST/SMTP_USER/SMTP_PASS (Docker). Email quên mật khẩu hiện chỉ in ra log, KHÔNG gửi tới người dùng.';
+    return 'Chưa cấu hình gửi email: đặt GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN (Gmail API) hoặc BREVO_API_KEY, kèm MAIL_FROM. Email quên mật khẩu hiện chỉ in ra log, KHÔNG gửi tới người dùng.';
+  }
+  if (MAIL_TRANSPORT === 'gmail' && !process.env.MAIL_FROM) {
+    return 'Thiếu MAIL_FROM: đặt đúng địa chỉ Gmail đã cấp quyền, ví dụ MAIL_FROM=AuraMall <ban@gmail.com>.';
   }
   if (MAIL_TRANSPORT === 'brevo' && !process.env.MAIL_FROM) {
     return 'Thiếu MAIL_FROM: Brevo chỉ gửi từ địa chỉ người gửi đã xác minh, ví dụ MAIL_FROM=AuraMall <ban@gmail.com>.';
@@ -314,6 +328,13 @@ if (mailConfigProblem()) console.warn(`[Email] CẢNH BÁO: ${mailConfigProblem(
 // Gợi ý cách sửa cho các lỗi gửi email hay gặp
 function mailErrorHint(message) {
   const hints = [
+    // Gmail API
+    [/invalid_grant/i, 'GMAIL_REFRESH_TOKEN hết hạn hoặc đã bị thu hồi (ứng dụng OAuth ở chế độ Testing thì token chỉ sống 7 ngày): chạy lại node scripts/gmail-auth.js rồi cập nhật GMAIL_REFRESH_TOKEN.'],
+    [/invalid_client|unauthorized_client/i, 'GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET sai, hoặc không cùng OAuth client đã dùng để tạo refresh token.'],
+    [/SERVICE_DISABLED|has not been used in project|accessNotConfigured/i, 'Gmail API chưa được bật: Google Cloud Console > APIs & Services > Library > Gmail API > Enable.'],
+    [/insufficient|SCOPE_INSUFFICIENT/i, 'Refresh token thiếu quyền gửi thư (gmail.send): chạy lại node scripts/gmail-auth.js và tick quyền gửi email.'],
+    [/limit exceeded|rateLimitExceeded|RESOURCE_EXHAUSTED/i, 'Vượt giới hạn gửi của Gmail (khoảng 500 thư/ngày với tài khoản thường), thử lại sau.'],
+    // Brevo / SMTP
     [/unrecogni[sz]ed IP|authori[sz]ed_?ips/i, 'Brevo đang chặn IP lạ: Brevo > Settings > Security > Authorised IPs, tắt chặn IP (Render đổi IP liên tục).'],
     [/sender/i, 'MAIL_FROM phải đúng địa chỉ người gửi đã xác minh tại Brevo > Senders, Domains & Dedicated IPs > Senders.'],
     [/key not found|invalid api key|api-key/i, 'BREVO_API_KEY sai hoặc đã bị xóa: tạo key mới tại Brevo > SMTP & API > API keys.'],
@@ -326,7 +347,10 @@ function mailErrorHint(message) {
 
 // Gửi email, trả về mã thư (nếu có) để tra cứu trong nhật ký của Brevo
 async function sendMail({ to, subject, text, html }) {
-  // Render gói Free chặn cổng SMTP (25/465/587): khi có BREVO_API_KEY thì gửi qua HTTPS API của Brevo (miễn phí 300 email/ngày)
+  // Render gói Free chặn cổng SMTP (25/465/587): gửi qua HTTPS bằng Gmail API, hoặc Brevo (miễn phí 300 email/ngày)
+  if (MAIL_TRANSPORT === 'gmail') {
+    return gmail.send(GMAIL, { from: MAIL_FROM, to, subject, text, html });
+  }
   if (MAIL_TRANSPORT === 'brevo') {
     const named = MAIL_FROM.match(/^(.*)<([^>]+)>$/);
     const sender = named ? { name: named[1].trim().replace(/^"|"$/g, ''), email: named[2].trim() } : { email: MAIL_FROM };

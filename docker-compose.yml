@@ -70,6 +70,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       MAIL_FROM: ${MAIL_FROM:-}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
+      # Gửi email bằng Gmail API (tạo bằng: node scripts/gmail-auth.js <client_secret.json>)
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:-}
     depends_on:
       database:
         condition: service_healthy
