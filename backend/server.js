@@ -292,27 +292,64 @@ const mailer = process.env.SMTP_HOST
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
     })
   : null;
-const MAIL_FROM = process.env.MAIL_FROM || `AuraMall <${process.env.SMTP_USER || 'no-reply@auramall.local'}>`;
+const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
+const MAIL_FROM = (process.env.MAIL_FROM || '').trim() || `AuraMall <${process.env.SMTP_USER || 'no-reply@auramall.local'}>`;
+// Cách gửi email đang dùng: brevo (HTTPS API) > smtp > log (chưa cấu hình, chỉ in ra log)
+const MAIL_TRANSPORT = BREVO_API_KEY ? 'brevo' : mailer ? 'smtp' : 'log';
+const MAIL_TRANSPORT_LABEL = { brevo: 'Brevo API', smtp: `SMTP ${process.env.SMTP_HOST}:${SMTP_PORT}`, log: 'Chưa cấu hình (chỉ in ra log)' };
 
+// Lỗi cấu hình thấy được ngay khi khởi động (xem log trên Render / docker compose logs backend)
+function mailConfigProblem() {
+  if (MAIL_TRANSPORT === 'log') {
+    return 'Chưa cấu hình gửi email: đặt BREVO_API_KEY + MAIL_FROM (Render) hoặc SMTP_HOST/SMTP_USER/SMTP_PASS (Docker). Email quên mật khẩu hiện chỉ in ra log, KHÔNG gửi tới người dùng.';
+  }
+  if (MAIL_TRANSPORT === 'brevo' && !process.env.MAIL_FROM) {
+    return 'Thiếu MAIL_FROM: Brevo chỉ gửi từ địa chỉ người gửi đã xác minh, ví dụ MAIL_FROM=AuraMall <ban@gmail.com>.';
+  }
+  return null;
+}
+console.log(`[Email] Cách gửi: ${MAIL_TRANSPORT_LABEL[MAIL_TRANSPORT]}, người gửi: ${MAIL_FROM}`);
+if (mailConfigProblem()) console.warn(`[Email] CẢNH BÁO: ${mailConfigProblem()}`);
+
+// Gợi ý cách sửa cho các lỗi gửi email hay gặp
+function mailErrorHint(message) {
+  const hints = [
+    [/unrecogni[sz]ed IP|authori[sz]ed_?ips/i, 'Brevo đang chặn IP lạ: Brevo > Settings > Security > Authorised IPs, tắt chặn IP (Render đổi IP liên tục).'],
+    [/sender/i, 'MAIL_FROM phải đúng địa chỉ người gửi đã xác minh tại Brevo > Senders, Domains & Dedicated IPs > Senders.'],
+    [/key not found|invalid api key|api-key/i, 'BREVO_API_KEY sai hoặc đã bị xóa: tạo key mới tại Brevo > SMTP & API > API keys.'],
+    [/not (yet )?activated|account.*(suspend|block)/i, 'Tài khoản Brevo chưa được kích hoạt gửi email giao dịch: kiểm tra email/thông báo từ Brevo.'],
+    [/invalid login|535|username and password/i, 'SMTP_USER/SMTP_PASS sai. Gmail phải dùng Mật khẩu ứng dụng 16 ký tự, không dùng mật khẩu Gmail.'],
+    [/ETIMEDOUT|ECONNREFUSED|ECONNECTION|Greeting never|ESOCKET/i, 'Không kết nối được máy chủ SMTP. Render gói Free chặn cổng SMTP, hãy dùng BREVO_API_KEY.'],
+  ];
+  return hints.find(([re]) => re.test(message))?.[1] || null;
+}
+
+// Gửi email, trả về mã thư (nếu có) để tra cứu trong nhật ký của Brevo
 async function sendMail({ to, subject, text, html }) {
   // Render gói Free chặn cổng SMTP (25/465/587): khi có BREVO_API_KEY thì gửi qua HTTPS API của Brevo (miễn phí 300 email/ngày)
-  if (process.env.BREVO_API_KEY) {
+  if (MAIL_TRANSPORT === 'brevo') {
     const named = MAIL_FROM.match(/^(.*)<([^>]+)>$/);
-    const sender = named ? { name: named[1].trim(), email: named[2].trim() } : { email: MAIL_FROM.trim() };
+    const sender = named ? { name: named[1].trim().replace(/^"|"$/g, ''), email: named[2].trim() } : { email: MAIL_FROM };
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
-      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+      headers: { 'api-key': BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ sender, to: [{ email: to }], subject, textContent: text, htmlContent: html }),
       signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) throw new Error(`Brevo API ${response.status}: ${(await response.text()).slice(0, 200)}`);
-    return;
+    const body = (await response.text()).trim();
+    if (!response.ok) throw new Error(`Brevo API ${response.status}: ${body.slice(0, 300)}`);
+    try {
+      return JSON.parse(body).messageId || null;
+    } catch {
+      return null;
+    }
   }
-  if (!mailer) {
-    console.log(`[EMAIL chưa cấu hình SMTP, chỉ in ra log]\nĐến: ${to}\nTiêu đề: ${subject}\n${text}`);
-    return;
+  if (MAIL_TRANSPORT === 'log') {
+    console.log(`[EMAIL chưa cấu hình, chỉ in ra log]\nĐến: ${to}\nTiêu đề: ${subject}\n${text}`);
+    return null;
   }
-  await mailer.sendMail({ from: MAIL_FROM, to, subject, text, html });
+  const info = await mailer.sendMail({ from: MAIL_FROM, to, subject, text, html });
+  return info.messageId || null;
 }
 
 function escapeHtml(value) {
@@ -518,6 +555,8 @@ app.get('/health', async (req, res) => {
       status: 'UP',
       service: 'ecommerce-backend',
       database: 'CONNECTED',
+      // Cách gửi email quên mật khẩu: brevo / smtp / log (log = chưa cấu hình, email không tới người dùng)
+      email: MAIL_TRANSPORT,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     });
@@ -628,7 +667,10 @@ app.post('/api/auth/login', async (req, res) => {
 
   const user = result.rows[0];
   if (!user.password_hash) {
-    throw new HttpError(401, 'Tài khoản này được tạo bằng Google. Hãy chọn "Đăng nhập với Google".');
+    throw new HttpError(
+      401,
+      'Tài khoản này được tạo bằng Google nên chưa có mật khẩu. Hãy chọn "Đăng nhập với Google", hoặc bấm "Quên mật khẩu?" để tạo mật khẩu.'
+    );
   }
   const isValid = verifyPassword(password, user.password_hash);
   if (!isValid) {
@@ -737,7 +779,7 @@ app.put('/api/auth/password', requireAuth, async (req, res) => {
 async function findPasswordReset(db, token, forUpdate = false) {
   if (typeof token !== 'string' || !RESET_TOKEN_RE.test(token)) return null;
   const result = await db.query(
-    `SELECT r.id, r.user_id, u.email, u.username
+    `SELECT r.id, r.user_id, u.email, u.username, (u.password_hash IS NOT NULL) AS has_password
      FROM password_resets r JOIN users u ON u.id = r.user_id
      WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > NOW()
      ${forUpdate ? 'FOR UPDATE OF r' : ''}`,
@@ -748,6 +790,38 @@ async function findPasswordReset(db, token, forUpdate = false) {
 
 const RESET_LINK_INVALID = 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.';
 
+// Nội dung email đặt lại mật khẩu. Tài khoản tạo bằng Google chưa có mật khẩu thì email hướng dẫn TẠO mật khẩu.
+function resetPasswordEmail(user, link) {
+  const viaGoogle = user.no_password;
+  const intro = viaGoogle
+    ? 'Tài khoản AuraMall của bạn đang đăng nhập bằng Google và chưa có mật khẩu. Tạo mật khẩu để đăng nhập thêm bằng email/tên đăng nhập; nút "Đăng nhập với Google" vẫn dùng được như cũ.'
+    : 'Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản AuraMall của bạn.';
+  const action = viaGoogle ? 'TẠO MẬT KHẨU' : 'ĐẶT LẠI MẬT KHẨU';
+  const ignore = viaGoogle
+    ? 'Nếu bạn không yêu cầu, hãy bỏ qua email này, tài khoản vẫn chỉ đăng nhập bằng Google.'
+    : 'Nếu bạn không yêu cầu, hãy bỏ qua email này, mật khẩu hiện tại vẫn giữ nguyên.';
+  return {
+    subject: viaGoogle ? 'AuraMall - Tạo mật khẩu cho tài khoản Google' : 'AuraMall - Đặt lại mật khẩu',
+    text: [
+      `Xin chào ${user.username},`,
+      '',
+      intro,
+      `Mở liên kết sau (hiệu lực ${RESET_TOKEN_TTL_MINUTES} phút, chỉ dùng được 1 lần):`,
+      link,
+      '',
+      ignore,
+    ].join('\n'),
+    html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a">
+  <p style="font-size:20px;letter-spacing:4px;margin:0 0 16px"><b>AURA</b>MALL</p>
+  <p>Xin chào <b>${escapeHtml(user.username)}</b>,</p>
+  <p>${escapeHtml(intro)}</p>
+  <p><a href="${escapeHtml(link)}" style="display:inline-block;background:#000;color:#fff;padding:12px 28px;text-decoration:none;letter-spacing:2px">${action}</a></p>
+  <p>Liên kết có hiệu lực trong ${RESET_TOKEN_TTL_MINUTES} phút và chỉ dùng được 1 lần.</p>
+  <p style="color:#666">${escapeHtml(ignore)}</p>
+</div>`,
+  };
+}
+
 // Quên mật khẩu: gửi liên kết đặt lại qua email.
 // Luôn trả cùng một thông báo dù email có tồn tại hay không, để không ai dò được email nào đã đăng ký.
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -756,9 +830,16 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     throw new HttpError(400, 'Vui lòng nhập địa chỉ email hợp lệ.');
   }
 
-  const found = await pool.query('SELECT id, username, email FROM users WHERE LOWER(email) = $1', [email]);
+  const found = await pool.query(
+    `SELECT id, username, email, (password_hash IS NULL) AS no_password, (google_sub IS NOT NULL) AS google_linked
+     FROM users WHERE LOWER(email) = $1`,
+    [email]
+  );
   const user = found.rows[0];
-  if (user) {
+  const masked = maskEmail(email);
+  if (!user) {
+    console.log(`[Quên mật khẩu] Không có tài khoản nào dùng email ${masked}, không gửi thư.`);
+  } else {
     // Chống spam hộp thư: cách nhau ít nhất 1 phút, tối đa RESET_REQUESTS_PER_HOUR lần mỗi giờ (vượt thì bỏ qua, không báo)
     const recent = await pool.query(
       `SELECT COUNT(*) AS total, COALESCE(MAX(created_at) > NOW() - INTERVAL '1 minute', FALSE) AS too_soon
@@ -766,38 +847,28 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       [user.id]
     );
     const { total, too_soon: tooSoon } = recent.rows[0];
-    if (!tooSoon && total < RESET_REQUESTS_PER_HOUR) {
+    if (tooSoon || total >= RESET_REQUESTS_PER_HOUR) {
+      const reason = tooSoon ? 'chưa đủ 1 phút từ lần gửi trước' : `đã gửi ${total} lần trong 1 giờ qua (tối đa ${RESET_REQUESTS_PER_HOUR})`;
+      console.warn(`[Quên mật khẩu] Bỏ qua yêu cầu cho ${masked}: ${reason}.`);
+    } else {
       const token = crypto.randomBytes(32).toString('base64url');
       await pool.query(
         `INSERT INTO password_resets (user_id, token_hash, expires_at)
          VALUES ($1, $2, NOW() + make_interval(mins => $3))`,
         [user.id, sha256(token), RESET_TOKEN_TTL_MINUTES]
       );
-      const link = `${APP_URL}/#/reset-password?token=${token}`;
       try {
-        await sendMail({
-          to: user.email,
-          subject: 'AuraMall - Đặt lại mật khẩu',
-          text: [
-            `Xin chào ${user.username},`,
-            '',
-            'Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản AuraMall của bạn.',
-            `Mở liên kết sau để đặt mật khẩu mới (hiệu lực ${RESET_TOKEN_TTL_MINUTES} phút, chỉ dùng được 1 lần):`,
-            link,
-            '',
-            'Nếu bạn không yêu cầu, hãy bỏ qua email này, mật khẩu hiện tại vẫn giữ nguyên.',
-          ].join('\n'),
-          html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a">
-  <p style="font-size:20px;letter-spacing:4px;margin:0 0 16px"><b>AURA</b>MALL</p>
-  <p>Xin chào <b>${escapeHtml(user.username)}</b>,</p>
-  <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản AuraMall của bạn.</p>
-  <p><a href="${escapeHtml(link)}" style="display:inline-block;background:#000;color:#fff;padding:12px 28px;text-decoration:none;letter-spacing:2px">ĐẶT LẠI MẬT KHẨU</a></p>
-  <p>Liên kết có hiệu lực trong ${RESET_TOKEN_TTL_MINUTES} phút và chỉ dùng được 1 lần.</p>
-  <p style="color:#666">Nếu bạn không yêu cầu, hãy bỏ qua email này, mật khẩu hiện tại vẫn giữ nguyên.</p>
-</div>`,
-        });
+        const messageId = await sendMail({ to: user.email, ...resetPasswordEmail(user, `${APP_URL}/#/reset-password?token=${token}`) });
+        if (MAIL_TRANSPORT === 'log') {
+          console.warn(`[Quên mật khẩu] ${masked}: email chỉ in ra log, chưa gửi thật. ${mailConfigProblem()}`);
+        } else {
+          console.log(`[Quên mật khẩu] Đã gửi liên kết tới ${masked} qua ${MAIL_TRANSPORT_LABEL[MAIL_TRANSPORT]}${messageId ? ` (messageId ${messageId})` : ''}.`);
+        }
       } catch (err) {
-        console.error('Gửi email đặt lại mật khẩu thất bại:', err.message);
+        const hint = mailErrorHint(err.message);
+        console.error(`[Quên mật khẩu] Gửi email tới ${masked} THẤT BẠI: ${err.message}${hint ? `\n  Cách sửa: ${hint}` : ''}`);
+        // Gửi lỗi thì không tính vào giới hạn, để người dùng thử lại ngay sau khi sửa cấu hình
+        await pool.query('DELETE FROM password_resets WHERE token_hash = $1', [sha256(token)]).catch(() => {});
       }
     }
   }
@@ -814,7 +885,7 @@ app.post('/api/auth/reset-password/verify', async (req, res) => {
   if (!reset) {
     throw new HttpError(400, RESET_LINK_INVALID);
   }
-  res.json({ status: 'success', data: { email: maskEmail(reset.email) } });
+  res.json({ status: 'success', data: { email: maskEmail(reset.email), hasPassword: reset.has_password } });
 });
 
 // Đặt lại mật khẩu bằng mã trong email, xong thì đăng nhập luôn
@@ -829,6 +900,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   const client = await pool.connect();
   let user;
+  let hadPassword = true;
   try {
     await client.query('BEGIN');
     // Khóa dòng mã để 2 request cùng lúc không dùng được một mã 2 lần
@@ -836,6 +908,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     if (!reset) {
       throw new HttpError(400, RESET_LINK_INVALID);
     }
+    hadPassword = reset.has_password;
     const updated = await client.query(
       `UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
        RETURNING id, username, email, phone, gender, birthday, avatar_url, role`,
@@ -857,7 +930,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
   const authToken = generateToken({ userId: user.id, username: user.username }, 86400 * 2);
   res.json({
     status: 'success',
-    message: 'Đặt lại mật khẩu thành công!',
+    // Tài khoản Google chưa có mật khẩu: lần này là tạo mới
+    message: hadPassword ? 'Đặt lại mật khẩu thành công!' : 'Tạo mật khẩu thành công!',
     token: authToken,
     user: authUser(user),
   });
@@ -1911,8 +1985,53 @@ app.get('/api/admin/stats', requireRole('admin'), async (req, res) => {
       products: { total: products.rows[0].total, outOfStock: products.rows[0].out_of_stock },
       orders: { total: orders.rows.reduce((sum, row) => sum + row.count, 0), byStatus },
       revenue,
+      email: mailStatus(),
     },
   });
+});
+
+function mailStatus() {
+  return {
+    transport: MAIL_TRANSPORT,
+    label: MAIL_TRANSPORT_LABEL[MAIL_TRANSPORT],
+    from: MAIL_TRANSPORT === 'log' ? null : MAIL_FROM,
+    appUrl: APP_URL,
+    problem: mailConfigProblem(),
+  };
+}
+
+// Gửi email thử để kiểm tra cấu hình (Brevo/SMTP): trả về lỗi thật của nhà cung cấp kèm gợi ý cách sửa
+app.post('/api/admin/email-test', requireRole('admin'), async (req, res) => {
+  const to = String((req.body || {}).to ?? '').trim();
+  if (!EMAIL_RULE.test(to)) {
+    throw new HttpError(400, 'Vui lòng nhập địa chỉ email nhận thư thử hợp lệ.');
+  }
+  if (MAIL_TRANSPORT === 'log') {
+    throw new HttpError(503, mailConfigProblem());
+  }
+  try {
+    const messageId = await sendMail({
+      to,
+      subject: 'AuraMall - Email thử',
+      text: `Email thử từ AuraMall (${APP_URL}). Nhận được thư này nghĩa là chức năng Quên mật khẩu đã gửi được email.`,
+      html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a">
+  <p style="font-size:20px;letter-spacing:4px;margin:0 0 16px"><b>AURA</b>MALL</p>
+  <p>Email thử từ <b>${escapeHtml(APP_URL)}</b>.</p>
+  <p>Nhận được thư này nghĩa là chức năng Quên mật khẩu đã gửi được email.</p>
+</div>`,
+    });
+    console.log(`[Email] Gửi thư thử tới ${maskEmail(to)} thành công${messageId ? ` (messageId ${messageId})` : ''}.`);
+    res.json({
+      status: 'success',
+      message: `Đã gửi thư thử tới ${to} qua ${MAIL_TRANSPORT_LABEL[MAIL_TRANSPORT]}. Kiểm tra hộp thư (cả mục Spam).`,
+      data: { messageId },
+    });
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    const hint = mailErrorHint(err.message);
+    console.error(`[Email] Gửi thư thử tới ${maskEmail(to)} THẤT BẠI: ${err.message}`);
+    throw new HttpError(502, `Gửi thất bại: ${err.message}${hint ? ` | Cách sửa: ${hint}` : ''}`);
+  }
 });
 
 // Danh sách người dùng (lọc theo quyền, tìm theo tên/email/SĐT)

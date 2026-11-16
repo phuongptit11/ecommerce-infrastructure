@@ -4209,6 +4209,49 @@ select.input {
   width: 240px;
 }
 
+/* Kiểm tra email hệ thống (trang Quản trị > Tổng quan) */
+.mail-check {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 20px 22px;
+  background: var(--mist);
+  border-left: 3px solid var(--success);
+  font-size: 14px;
+}
+
+.mail-check.is-bad {
+  border-left-color: var(--danger);
+}
+
+.mail-check p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  overflow-wrap: anywhere;
+}
+
+.mail-check p .muted {
+  min-width: 120px;
+}
+
+.mail-check strong {
+  font-weight: 500;
+}
+
+.mail-check .mail-check-problem {
+  color: var(--danger);
+}
+
+.mail-check-form {
+  margin-top: 6px;
+}
+
+.mail-check .hint {
+  display: block;
+  font-size: 13px;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line-soft);
