@@ -2375,10 +2375,12 @@ async function submitForgotPassword(form, button) {
 async function viewResetPassword({ query, token: routeToken }) {
   const resetToken = query.get('token') || '';
   let email = '';
+  let hasPassword = true;
   let error = '';
   try {
     const res = await api('/api/auth/reset-password/verify', { method: 'POST', body: { token: resetToken } });
     email = res.data.email;
+    hasPassword = res.data.hasPassword !== false;
   } catch (err) {
     error = err.message;
   }
@@ -2402,12 +2404,13 @@ async function viewResetPassword({ query, token: routeToken }) {
   $('#view').innerHTML = authLayout(
     'Lấy lại mật khẩu',
     `<form data-form="reset-password" novalidate>
-      <p class="eyebrow">Đặt lại mật khẩu</p>
-      <h1 class="auth-title">Tạo mật khẩu mới</h1>
+      <p class="eyebrow">${hasPassword ? 'Đặt lại mật khẩu' : 'Tài khoản Google'}</p>
+      <h1 class="auth-title">${hasPassword ? 'Tạo mật khẩu mới' : 'Tạo mật khẩu'}</h1>
       <p class="auth-lead">Tài khoản: <strong>${esc(email)}</strong></p>
+      ${hasPassword ? '' : '<p class="auth-lead">Tài khoản này đang đăng nhập bằng Google. Sau khi tạo mật khẩu, bạn đăng nhập được bằng email + mật khẩu, nút Google vẫn dùng như cũ.</p>'}
       <input type="hidden" name="token" value="${esc(resetToken)}">
       ${newPasswordFields('Mật khẩu mới', { id: 'resetPw', name: 'newPassword' })}
-      <button class="btn btn--solid btn--block" type="submit">Đặt lại mật khẩu</button>
+      <button class="btn btn--solid btn--block" type="submit">${hasPassword ? 'Đặt lại mật khẩu' : 'Tạo mật khẩu'}</button>
       <p class="auth-switch"><a href="#/login" class="link-lux">Quay lại đăng nhập</a></p>
     </form>`
   );
@@ -2430,7 +2433,7 @@ async function submitResetPassword(form, button) {
       method: 'POST',
       body: { token: form.token.value, newPassword, confirmPassword },
     });
-    finishAuth(res, 'Đặt lại mật khẩu thành công, bạn đã được đăng nhập!');
+    finishAuth(res, `${res.message || 'Đặt lại mật khẩu thành công!'} Bạn đã được đăng nhập.`);
   } catch (err) {
     toast(err.message, 'error');
     setBusy(button, false);
@@ -3408,6 +3411,45 @@ function adminOrderTable(orders) {
   </table></div>`;
 }
 
+// Kiểm tra cấu hình gửi email (Quên mật khẩu): xem cách gửi đang dùng và gửi thư thử để thấy lỗi thật
+function adminEmailSection(mail) {
+  return `
+    <div class="sub-head"><h3 class="sub-title">Email hệ thống (Quên mật khẩu)</h3></div>
+    <div class="mail-check ${mail.problem ? 'is-bad' : 'is-ok'}">
+      <p><span class="muted">Cách gửi</span><strong>${esc(mail.label)}</strong></p>
+      ${mail.from ? `<p><span class="muted">Người gửi</span><strong>${esc(mail.from)}</strong></p>` : ''}
+      <p><span class="muted">Liên kết trỏ về</span><strong>${esc(mail.appUrl)}</strong></p>
+      ${mail.problem ? `<p class="mail-check-problem">${esc(mail.problem)}</p>` : ''}
+      <form class="admin-search mail-check-form" data-form="admin-email-test" novalidate>
+        <input class="input input--sm" name="to" type="email" value="${esc(state.user?.email || '')}" placeholder="Email nhận thư thử" aria-label="Email nhận thư thử">
+        <button class="btn btn--sm" type="submit">Gửi email thử</button>
+      </form>
+      <p class="hint" id="mailTestResult" aria-live="polite"></p>
+    </div>`;
+}
+
+async function submitAdminEmailTest(form, button) {
+  const to = form.to.value.trim();
+  const result = $('#mailTestResult');
+  if (!EMAIL_RE.test(to)) {
+    toast('Vui lòng nhập email nhận thư thử hợp lệ.', 'error');
+    form.to.focus();
+    return;
+  }
+  setBusy(button, true, 'Đang gửi...');
+  result.className = 'hint';
+  result.textContent = '';
+  try {
+    const res = await api('/api/admin/email-test', { method: 'POST', body: { to } });
+    result.className = 'hint is-ok';
+    result.textContent = res.message;
+  } catch (err) {
+    result.className = 'hint is-bad';
+    result.textContent = err.message;
+  }
+  setBusy(button, false);
+}
+
 const ADMIN_TABS = {
   async overview({ token }) {
     const panel = $('#accountPanel');
@@ -3434,7 +3476,8 @@ const ADMIN_TABS = {
           .join('')}
       </div>
       <div class="sub-head"><h3 class="sub-title">Đơn hàng mới nhất</h3><a class="link-arrow" href="#/admin/orders">Xem tất cả ${icon('arrow')}</a></div>
-      ${adminOrderTable(recent.data)}`;
+      ${adminOrderTable(recent.data)}
+      ${s.email ? adminEmailSection(s.email) : ''}`;
   },
 
   async users({ query, token }) {
@@ -3802,6 +3845,7 @@ const FORMS = {
   product: submitProduct,
   password: submitPassword,
   'admin-search': (form) => go(routeUrl({ q: form.q.value.trim() })),
+  'admin-email-test': submitAdminEmailTest,
 };
 
 function bindEvents() {
