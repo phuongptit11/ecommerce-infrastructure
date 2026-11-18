@@ -1,70 +1,60 @@
 #!/bin/bash
 
+# Dừng kịch bản nếu có lỗi xảy ra
 set -e
 
-# Nạp biến môi trường
+# 1. Nạp biến môi trường từ file .env (nếu có)
 [ -f .env ] && export $(grep -v '^#' .env | xargs)
 
+# 2. Cấu hình thông số với giá trị mặc định
 CONTAINER_NAME="ecommerce_database"
 DB_NAME="${DB_NAME:-ecommerce_db}"
 DB_USER="${DB_USER:-ecommerce_user}"
 DB_PASSWORD="${DB_PASSWORD:-ecommerce_secret}"
 
-# Kiểm tra container
+BACKUP_FILE="$1"
+
+# 3. Kiểm tra tham số đầu vào
+if [ -z "$BACKUP_FILE" ]; then
+    echo "Lỗi: Vui lòng cung cấp đường dẫn đến tệp sao lưu."
+    echo "Cách dùng: bash scripts/restore.sh ./database/backups/<TEN_TEP_BACKUP>.sql.gz"
+    exit 1
+fi
+
+# Kiểm tra tệp sao lưu có tồn tại không
+if [ ! -f "$BACKUP_FILE" ]; then
+    echo "Lỗi: Không tìm thấy tệp '$BACKUP_FILE'."
+    exit 1
+fi
+
+# Kiểm tra trạng thái container
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    echo "Lỗi: Container '${CONTAINER_NAME}' chưa chạy. Vui lòng chạy: docker compose up -d"
+    echo "Lỗi: Container '${CONTAINER_NAME}' chưa chạy. Vui lòng khởi động hệ thống bằng: docker compose up -d"
     exit 1
 fi
 
-# Kiểm tra tham số
-if [ -z "$1" ]; then
-    echo "Cách dùng:"
-    echo "  Phục hồi từ file: bash scripts/restore.sh <file_backup.sql>"
-    echo "  Reset về ban đầu: bash scripts/restore.sh --reset"
-    exit 1
+# 4. Cảnh báo an toàn (Theo mục 4.1 của tài liệu)
+echo "CẢNH BÁO: Thao tác này sẽ GHI ĐÈ TOÀN BỘ dữ liệu hiện tại của CSDL '${DB_NAME}'!"
+read -p "Bạn có chắc chắn muốn phục hồi từ tệp '$BACKUP_FILE' không? (y/N): " confirm
+
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "Đã hủy thao tác phục hồi."
+    exit 0
 fi
 
-# Hàm làm sạch CSDL
-clean_schema() {
-    echo "Đang làm sạch schema public..."
-    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
-        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -c "
-            DROP SCHEMA public CASCADE;
-            CREATE SCHEMA public;
-            GRANT ALL ON SCHEMA public TO $DB_USER;
-            GRANT ALL ON SCHEMA public TO public;
-        " > /dev/null
-}
+echo "Đang nạp dữ liệu từ '$BACKUP_FILE' vào cơ sở dữ liệu..."
 
-if [ "$1" == "--reset" ]; then
-    clean_schema
-    echo "Đang chạy file 01-schema.sql..."
-    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
-        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f /docker-entrypoint-initdb.d/01-schema.sql > /dev/null
-
-    echo "Đang chạy file 02-seed.sql..."
-    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
-        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f /docker-entrypoint-initdb.d/02-seed.sql > /dev/null
+# 5. Xử lý nạp dữ liệu (Hỗ trợ cả file nén .gz và file raw .sql)
+if [[ "$BACKUP_FILE" == *.gz ]]; then
+    gunzip -c "$BACKUP_FILE" | docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" > /dev/null
 else
-    BACKUP_FILE="$1"
-    if [ ! -f "$BACKUP_FILE" ]; then
-        echo "Lỗi: Không tìm thấy file '$BACKUP_FILE'."
-        exit 1
-    fi
-
-    clean_schema
-    echo "Đang nạp dữ liệu từ '$BACKUP_FILE'..."
-    
-    if [[ "$BACKUP_FILE" == *.gz ]]; then
-        gunzip -c "$BACKUP_FILE" | docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
-            psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" > /dev/null
-    else
-        docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
-            psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE" > /dev/null
-    fi
+    docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE" > /dev/null
 fi
 
-echo "Đang khởi động lại backend..."
+# Khởi động lại Backend để đồng bộ các connection pool hoặc cache (nếu cần)
+echo "Đang khởi động lại Backend để đồng bộ dữ liệu..."
 docker compose restart backend
 
-echo "Hoàn tất phục hồi dữ liệu!"
+echo "Hoàn tất phục hồi dữ liệu thành công!"
