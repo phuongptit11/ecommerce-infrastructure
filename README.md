@@ -1,7 +1,18 @@
 # HỆ THỐNG HẠ TẦNG THƯƠNG MẠI ĐIỆN TỬ AURAMALL
 ## ĐỀ TÀI 07: THIẾT KẾ & TRIỂN KHAI HẠ TẦNG CNTT CHO HỆ THỐNG TMĐT
 
-Hệ thống mô phỏng kiến trúc hạ tầng TMĐT phân vùng mạng 3 tầng chuyên nghiệp, đáp ứng các tiêu chuẩn bảo mật, phân quyền nghiêm ngặt (3 Roles RBAC), cân bằng tải tự động, đa dạng phương thức triển khai (Local Docker, Cloudflare Tunnel, Render Cloud, Vercel Serverless) và đã sẵn sàng kịch bản kiểm thử tải (k6 load testing):
+### DANH SÁCH THÀNH VIÊN NHÓM THỰC HIỆN
+
+| STT | Họ và tên | Mã sinh viên | Vai trò |
+| :---: | :--- | :---: | :--- |
+| 1 | Nguyễn Minh Phương | B24DCCC231 | Thiết kế các tầng và kịch bản tải. |
+| 2 | Nguyễn Duy Tư | B24DCCC275 | Triển khai Web/ứng dụng. |
+| 3 | Mạc Đức Dương | B24DCCC087 | Cấu hình kho dữ liệu và sao lưu. |
+| 4 | Nguyễn Đức Dũng | B24DCCC081 | Đo tải, cải tiến và so sánh. |
+
+---
+
+Hệ thống mô phỏng kiến trúc hạ tầng TMĐT phân vùng mạng 3 tầng chuyên nghiệp, đáp ứng các tiêu chuẩn bảo mật, phân quyền nghiêm ngặt (3 Roles RBAC), cân bằng tải tự động, đa dạng phương thức triển khai (Local Docker, Cloudflare Tunnel, Render Cloud) và đã sẵn sàng kịch bản kiểm thử tải (k6 load testing) cùng quy trình sao lưu - phục hồi dữ liệu:
 
 * **Tầng 1 (Web Tier):** Nginx Reverse Proxy 1.28 & Static Web SPA (Public Subnet - Cổng 80)
 * **Tầng 2 (App Tier):** Node.js 22 Express 5 API Cluster (Private Subnet - Cổng 5000 nội bộ)
@@ -9,34 +20,28 @@ Hệ thống mô phỏng kiến trúc hạ tầng TMĐT phân vùng mạng 3 t�
 
 ---
 
-## 1. CÁC EXTENSION KHUYẾN NGHỊ TRONG VISUAL STUDIO CODE
+## 1. PHIÊN BẢN PHẦN MỀM & CÔNG NGHỆ SỬ DỤNG
 
-Để mở và làm việc hiệu quả với toàn bộ các định dạng file trong dự án bằng Visual Studio Code, bạn nên cài đặt các extension sau trong tab Extensions (`Ctrl + Shift + X`):
-
-1. **Draw.io Integration (`hediet.vscode-drawio`)**:
-   - Dùng để xem và chỉnh sửa sơ đồ kiến trúc hạ tầng [docs/architecture.drawio](docs/architecture.drawio) trực tiếp ngay trong VS Code với giao diện đồ họa kéo thả.
-2. **REST Client (`humao.rest-client`)** hoặc **Thunder Client (`rangav.vscode-thunder-client`)**:
-   - Dùng để gửi trực tiếp các Request API kiểm thử có sẵn trong [docs/api-test.http](docs/api-test.http) chỉ bằng 1 cú click ("Send Request").
-3. **Docker (`ms-azuretools.vscode-docker`)**:
-   - Quản lý các container, volume, network và kiểm tra log của [docker-compose.yml](docker-compose.yml).
-4. **PostgreSQL Client / SQLTools (`mtxr.sqltools` + `mtxr.sqltools-driver-pg`)**:
-   - Quản lý, chạy câu lệnh truy vấn trực tiếp vào CSDL PostgreSQL từ file [database/schema.sql](database/schema.sql) và [database/seed.sql](database/seed.sql).
-5. **Prettier - Code formatter (`esbenp.prettier-vscode`)**:
-   - Tự động định dạng mã nguồn HTML, CSS, JavaScript, JSON và Markdown chuẩn chỉ.
-
-> **Mẹo cài nhanh bằng dòng lệnh Terminal:**
-> ```bash
-> code --install-extension hediet.vscode-drawio
-> code --install-extension humao.rest-client
-> code --install-extension ms-azuretools.vscode-docker
-> code --install-extension mtxr.sqltools
-> ```
+| Thành phần | Công nghệ / Nền tảng | Phiên bản | Vai trò & Mô tả kỹ thuật |
+| :--- | :--- | :---: | :--- |
+| **Web Server / Gateway** | Nginx | `1.28-alpine` | Reverse proxy, cân bằng tải round-robin, serving Web SPA tĩnh, chặn truy cập trái phép cổng nội bộ. |
+| **Môi trường Runtime** | Node.js | `22-alpine` (LTS) | Môi trường thực thi JavaScript bất đồng bộ hiệu năng cao cho ứng dụng Backend. |
+| **Web Framework** | Express.js | `^5.3.0` | Xây dựng RESTful API, quản lý routing và middleware phân quyền RBAC. |
+| **Hệ quản trị CSDL** | PostgreSQL | `15-alpine` | CSDL quan hệ lưu trữ dữ liệu ACID, quan hệ 8 bảng, transaction xử lý đặt hàng chống race condition. |
+| **Database Driver** | `pg` (node-postgres) | `^8.23.1` | Quản lý Connection Pool kết nối CSDL hiệu năng cao với `DB_POOL_MAX=10`. |
+| **Bảo mật & Mã hóa** | `helmet`, `bcryptjs`, `crypto` | Mới nhất | Bảo vệ HTTP headers, băm mật khẩu chuẩn Salted BCrypt, xác thực JWT & Google OAuth. |
+| **Dịch vụ Email** | `nodemailer` | `10.3.1` | Gửi email khôi phục mật khẩu qua Gmail API / SMTP / Brevo API. |
+| **Tài liệu API** | Swagger UI Express | `^5.0.1` | Tự động sinh giao diện tài liệu OpenAPI tương tác tại `/api/docs/`. |
+| **Ảo hóa & Đóng gói** | Docker Engine & Docker Compose | `Docker 24+` / `Compose v2` | Cô lập mạng (`public_net`, `private_net`), quản lý volume, scale-out service. |
+| **Kiểm thử hiệu năng** | Grafana k6 | `v0.50+` | Đo tải 3 mức (20 VUs, 100 VUs, 200 VUs) với tác vụ Đọc danh mục và Ghi đơn hàng. |
+| **Hạ tầng Mạng Cloud** | Cloudflare Tunnel (`cloudflared`) | `2025.11.1` | Kết nối tunnel bảo mật ra Internet qua tên miền riêng kèm SSL/TLS 1.3 miễn phí. |
+| **Nền tảng Cloud 24/7** | Render Cloud | Singapore Region | Web Service và Managed PostgreSQL Cloud phục vụ website hoạt động liên tục 24/7. |
 
 ---
 
-## 2. HƯỚNG DẪN KHỞI CHẠY VÀ TRIỂN KHAI (4 PHƯƠNG ÁN)
+## 2. HƯỚNG DẪN KHỞI CHẠY VÀ TRIỂN KHAI HỆ THỐNG
 
-Hệ thống hỗ trợ 4 phương thức chạy từ máy cục bộ (Local) đến đẩy lên môi trường Internet (Cloud / Serverless):
+Hệ thống hỗ trợ 2 phương án triển khai linh hoạt:
 
 ### Phương án 1: Chạy Local 3 Tầng bằng Docker Compose (Khuyên dùng cho học tập & bảo vệ đồ án)
 
@@ -70,57 +75,29 @@ docker compose up -d --build
 
 ---
 
-### Phương án 2: Đưa web ra Internet bằng Tên miền riêng qua Cloudflare Tunnel
+### Phương án 2: Đưa web ra Internet bằng Tên miền riêng qua Cloudflare Tunnel kết hợp Render chạy 24/7
 
-Cho phép truy cập website từ bất kỳ đâu qua Internet với **HTTPS có chứng chỉ SSL chính thức**, **không cần IP tĩnh hay mở cổng modem/router**:
-Container `cloudflared` tạo tunnel bảo mật kết nối ra Cloudflare Edge và chuyển luồng truy cập vào `http://nginx:80` (vẫn đi qua trọn vẹn 3 tầng hạ tầng).
+Phương án này giúp website hoạt động trực tuyến 24/7 với **HTTPS có chứng chỉ SSL chính thức**, **không cần bật máy tính cá nhân**, không cần IP tĩnh hay mở cổng modem/router:
 
-1. Thêm tên miền vào Cloudflare (gói Free), trỏ Nameserver ở nhà đăng ký tên miền về Cloudflare.
-2. Cloudflare Dashboard $\rightarrow$ **Networks** $\rightarrow$ **Tunnels** $\rightarrow$ **Create Tunnel** $\rightarrow$ Chọn Docker $\rightarrow$ Sao chép token vào file `.env`:
-   ```env
-   CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
-   ```
-3. Trong Tunnel $\rightarrow$ **Routes** $\rightarrow$ **Published application**: Nhập tên miền của bạn, Service URL chọn: `http://nginx:80`.
-4. Khởi chạy hệ thống kèm profile tunnel:
-   ```bash
-   docker compose --profile tunnel up -d
-   ```
-5. Bật tùy chọn SSL: **SSL/TLS** $\rightarrow$ **Edge Certificates** $\rightarrow$ **Always Use HTTPS**.
+> 🌐 **Truy cập trực tiếp bản triển khai hoàn chỉnh của nhóm:**  
+> Hiện tại nhóm chỉ cần truy cập vào bản triển khai hoàn chỉnh qua website sau là có thể thao tác và kiểm thử đầy đủ mọi tính năng 24/7:  
+> **👉 [https://duytu205.id.vn](https://duytu205.id.vn)** *(Tên miền riêng chính thức của dự án)*
 
-> **Bản triển khai thực tế của nhóm:** Website chính thức hoạt động tại **[https://duytu205.id.vn](https://duytu205.id.vn)** (Tunnel `auramall`).
-
----
-
-### Phương án 3: Deploy 24/7 lên Render Cloud (Full Cloud Blueprint)
-
-Web hoạt động 24/7 trực tuyến mà **không cần bật máy tính cá nhân**, sử dụng file cấu hình [render.yaml](render.yaml):
-- **`auramall-db`**: PostgreSQL 15 quản trị trên Render (Singapore region).
-- **`auramall`**: Web Service Node.js phục vụ cả giao diện SPA và API (`SERVE_FRONTEND=true`). File [scripts/init-cloud-db.js](scripts/init-cloud-db.js) tự động nạp `schema.sql` và `seed.sql` ngay khi deploy.
-
-1. Đẩy mã nguồn dự án lên GitHub cá nhân.
-2. Truy cập [render.com](https://render.com) $\rightarrow$ **New** $\rightarrow$ **Blueprint** $\rightarrow$ Chọn repository `ecommerce-infrastructure` và chọn nhánh.
-3. Điền các biến môi trường khi Render hỏi (`APP_URL=https://<domain>`, `GOOGLE_CLIENT_ID`, `BREVO_API_KEY`) $\rightarrow$ Bấm **Apply**.
-4. Gắn tên miền riêng: Service **auramall** $\rightarrow$ **Settings** $\rightarrow$ **Custom Domains** $\rightarrow$ Thêm tên miền $\rightarrow$ Thêm bản ghi CNAME trên Cloudflare DNS trỏ về `<service-name>.onrender.com`.
-
----
-
-### Phương án 4: Deploy Serverless lên Vercel + Neon PostgreSQL
-
-Dành cho kiến trúc Serverless siêu nhẹ với chi phí 0đ:
-- Giao diện Frontend phục vụ tĩnh toàn cầu qua Edge CDN của Vercel.
-- Toàn bộ API Express được chuyển đổi thành Serverless Function qua [api/index.js](api/index.js) và [vercel.json](vercel.json).
-- CSDL PostgreSQL đặt trên mây qua [Neon.tech](https://neon.tech) (gói Free có sẵn SSL).
-
-1. Tạo database trên Neon.tech, sao chép chuỗi kết nối `DATABASE_URL="postgres://...?sslmode=require"`.
-2. Khởi tạo bảng và dữ liệu mẫu từ máy (chạy 1 lần):
-   ```bash
-   cd backend && npm ci && cd ..
-   DATABASE_URL="postgres://...?sslmode=require" node scripts/init-cloud-db.js
-   ```
-3. Deploy lên Vercel:
-   ```bash
-   npx vercel --prod
-   ```
+**Cơ chế hoạt động:**
+1. **Cloudflare Tunnel & DNS Edge:** Tên miền `duytu205.id.vn` được ủy quyền qua Cloudflare DNS, thiết lập SSL/TLS Full/Strict và kết nối bảo mật Edge CDN giúp tăng tốc truy cập toàn cầu.
+2. **Hạ tầng Cloud 24/7:**
+   - Dịch vụ Web Service và Database PostgreSQL được vận hành trên hạ tầng đám mây (Render Cloud - Region Singapore) thông qua cấu hình [render.yaml](render.yaml).
+   - Tệp [scripts/init-cloud-db.js](scripts/init-cloud-db.js) tự động khởi tạo cấu trúc 8 bảng (`schema.sql`) và dữ liệu mẫu (`seed.sql`).
+3. **Khi cần chạy Tunnel trực tiếp từ máy cục bộ (Tùy chọn):**
+   - Lấy token tại Cloudflare Dashboard $\rightarrow$ **Networks** $\rightarrow$ **Tunnels** $\rightarrow$ Dán vào `.env`:
+     ```env
+     CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
+     ```
+   - Khởi chạy tunnel bằng Docker Compose:
+     ```bash
+     docker compose --profile tunnel up -d
+     ```
+   - Container `cloudflared` sẽ tự động thiết lập đường hầm mã hóa và định tuyến yêu cầu từ `https://duytu205.id.vn` vào cổng 80 của `ecommerce_nginx`.
 
 ---
 
@@ -156,7 +133,7 @@ Kiểm tra cấu hình: mở `/health` xem trường `email` (`gmail` / `brevo` 
   SMTP_PASS=xxxx_xxxx_xxxx_xxxx   # Mật khẩu ứng dụng 16 ký tự của Google
   MAIL_FROM="AuraMall Support <your_email@gmail.com>"
   ```
-- **Chạy trên Cloud Render / Vercel (Brevo API):** Vì các dịch vụ Cloud miễn phí chặn cổng SMTP 587, cấu hình dùng Brevo API Key:
+- **Chạy trên Cloud Render (Brevo API):** Vì các dịch vụ Cloud miễn phí chặn cổng SMTP 587, cấu hình dùng Brevo API Key:
   ```env
   BREVO_API_KEY=xkeysib-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   MAIL_FROM="AuraMall <your_email@gmail.com>"
@@ -213,18 +190,187 @@ Tất cả 3 tài khoản đều có mật khẩu mặc định là: **`Password
 
 ---
 
-## 6. KỊCH BẢN KIỂM THỬ TẢI (K6 LOAD TESTING)
+## 6. HƯỚNG DẪN KIỂM THỬ HIỆU NĂNG VÀ ĐO TẢI CHỊU TẢI (GRAFANA K6)
 
-Dự án đã chuẩn bị sẵn các kịch bản kiểm thử tải bằng công cụ **Grafana k6** trong thư mục [loadtest/](loadtest/):
-* **Tác vụ Đọc danh mục:** [loadtest/test-read.js](loadtest/test-read.js) (`GET /api/products`)
-* **Tác vụ Ghi đặt hàng:** [loadtest/test-write.js](loadtest/test-write.js) (`POST /api/orders`)
-* **Kịch bản tổng hợp Flash Sale:** [loadtest/ecommerce.js](loadtest/ecommerce.js) (80% Đọc, 20% Ghi)
+Hệ thống được thiết kế và thực thi kiểm thử hiệu năng toàn diện trên địa chỉ triển khai thực tế (**`https://duytu205.id.vn`**) hoặc môi trường Docker local bằng công cụ **Grafana k6**. Bộ kịch bản gồm **7 kịch bản chuyên sâu** nằm trong thư mục [loadtest/](loadtest/), tách biệt rõ rệt từng mức tải (VU), tác vụ Đọc/Ghi, khả năng chịu sốc Flash Sale, tìm điểm sập và độ bền dài hạn.
 
-Nhóm sẽ thực hiện chạy đo tải các mức và cập nhật số liệu chính thức sau khi hoàn tất môi trường.
+### 6.1. Ma trận 7 kịch bản kiểm thử tải
+
+| STT | Tên kịch bản | Loại hình kiểm thử | Cấu hình tải (Scenarios) | Mục tiêu kỹ thuật |
+| :---: | :--- | :--- | :--- | :--- |
+| **1** | [loadtest/ecommerce.js](loadtest/ecommerce.js) | **Luồng tổng hợp (Mix Load)** | 3 mức: 20 VU $\rightarrow$ 100 VU $\rightarrow$ 300 VU (100s) | Mô phỏng người dùng thật: 80% Đọc danh mục, 20% Ghi đặt hàng. |
+| **2** | [loadtest/test-read.js](loadtest/test-read.js) | **Tốc độ Đọc (Read Throughput)** | 3 mức: 20 VU $\rightarrow$ 100 VU $\rightarrow$ 300 VU (100s) | Đo thông lượng (RPS) và băng thông API `GET /api/products`. |
+| **3** | [loadtest/test-write.js](loadtest/test-write.js) | **Tốc độ Ghi (Write Concurrency)**| 3 mức: 20 VU $\rightarrow$ 100 VU $\rightarrow$ 300 VU (100s) | Đo tốc độ giao dịch `POST /api/orders`, kiểm tra khóa chống bán âm. |
+| **4** | [loadtest/spike-test.js](loadtest/spike-test.js) | **Đột biến Flash Sale (Spike)** | 10 VU $\rightarrow$ vọt **400 VU trong 3s** $\rightarrow$ rút về 10 VU | Mô phỏng giờ mở bán 00:00 và đo khả năng tự hồi phục (Self-healing). |
+| **5** | [loadtest/stress-breakpoint.js](loadtest/stress-breakpoint.js) | **Tìm điểm sập (Breakpoint)** | Bậc thang liên tục: 100 $\rightarrow$ 200 $\rightarrow$ 400 $\rightarrow$ 600 VU (65s) | Tìm ngưỡng sập tối đa và điểm bão hòa thông lượng (Saturation Point). |
+| **6** | [loadtest/soak-endurance.js](loadtest/soak-endurance.js) | **Sức bền dài hạn (Soak Test)** | Duy trì ổn định 80 VU liên tục trong **5 phút** (300s) | Phát hiện rò rỉ bộ nhớ (Memory Leak) hoặc tràn Connection Pool. |
+| **7** | [loadtest/auth-stress.js](loadtest/auth-stress.js) | **Tải xác thực (Auth Stress)** | 2 mức tải đăng nhập: 20 VU $\rightarrow$ 100 VU (40s) | Kiểm tra lớp lọc đầu vào (Input Validation) và tải băm mật khẩu `bcrypt`. |
 
 ---
 
-## 7. BẢNG XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
+### 6.2. Yêu cầu cài đặt công cụ k6 (Prerequisites)
+
+Trước khi thực thi, máy tính cần cài đặt công cụ Grafana k6:
+* **Trên Windows:**
+  ```powershell
+  winget install grafana.k6
+  # Hoặc dùng Chocolatey: choco install k6
+  ```
+* **Trên Linux (Ubuntu/Debian):**
+  ```bash
+  sudo gpg -k
+  sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+  echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+  sudo apt-get update && sudo apt-get install k6
+  ```
+* **Trên macOS:** `brew install k6`
+* **Kiểm tra cài đặt:**
+  ```bash
+  k6 version
+  ```
+
+---
+
+### 6.3. Cách 1: Chạy tự động chuỗi 7 kịch bản bằng PowerShell (Khuyên dùng)
+
+Mở PowerShell tại thư mục gốc của dự án (`d:\ecommerce-infrastructure`), dán khối lệnh tự động dưới đây để chạy tuần tự 7 bài test, tự khởi tạo thư mục kết quả, ghi log sạch mã ANSI (`--no-color`) và chèn thời gian nghỉ 15 giây giữa các bài test để máy chủ giải phóng tài nguyên:
+
+```powershell
+# 1. Tạo thư mục lưu kết quả (tự động bỏ qua nếu đã tồn tại)
+$ResultDir = "loadtest/test-result"
+New-Item -ItemType Directory -Force -Path $ResultDir | Out-Null
+
+# 2. Danh sách 7 file kịch bản cần chạy theo thứ tự
+$Scripts = @(
+    "ecommerce.js",
+    "test-read.js",
+    "test-write.js",
+    "spike-test.js",
+    "stress-breakpoint.js",
+    "auth-stress.js",
+    "soak-endurance.js"
+)
+
+# 3. Chạy lần lượt từng file, xuất ra .txt và nghỉ 15 giây giữa các bài test
+foreach ($Script in $Scripts) {
+    $BaseName = [System.IO.Path]::GetFileNameWithoutExtension($Script)
+    $OutputFile = "$ResultDir/ket-qua-$BaseName.txt"
+    Write-Host ">>> Dang chay kich ban: $Script..." -ForegroundColor Cyan
+    k6 run --no-color -e BASE_URL=https://duytu205.id.vn "loadtest/$Script" | Tee-Object -FilePath $OutputFile
+    Write-Host ">>> Da luu tai: $OutputFile. Nghi 15 giay de server hoi phuc..." -ForegroundColor Green
+    Start-Sleep -Seconds 15
+}
+Write-Host ">>> HOAN TAT TOAN BO 7 KICH BAN KIEM THU!" -ForegroundColor Yellow
+```
+*(Nếu muốn kiểm thử trên môi trường Docker cục bộ, đổi tham số thành `-e BASE_URL=http://localhost`).*
+
+---
+
+### 6.4. Cách 2: Chạy kiểm thử đơn lẻ từng kịch bản (Dành cho quay demo & gỡ lỗi)
+
+Bạn có thể chạy riêng từng kịch bản trọng tâm để quan sát tiến trình trực tiếp trên màn hình:
+
+1. **Đo thông lượng Đọc tối đa (`GET /api/products`):**
+   ```powershell
+   k6 run -e BASE_URL=https://duytu205.id.vn loadtest/test-read.js
+   ```
+2. **Đo tốc độ Ghi và kiểm tra khóa giao dịch (`POST /api/orders`):**
+   ```powershell
+   k6 run -e BASE_URL=https://duytu205.id.vn loadtest/test-write.js
+   ```
+3. **Tìm Điểm bão hòa và Điểm sập hệ thống (100 $\rightarrow$ 600 VU):**
+   ```powershell
+   k6 run -e BASE_URL=https://duytu205.id.vn loadtest/stress-breakpoint.js
+   ```
+4. **Đo cú sốc Flash Sale đột biến (10 VU $\rightarrow$ 400 VU):**
+   ```powershell
+   k6 run -e BASE_URL=https://duytu205.id.vn loadtest/spike-test.js
+   ```
+
+
+
+
+## 7. HƯỚNG DẪN KIỂM THỬ 3: PHỤC HỒI KHO DỮ LIỆU MẪU & KIỂM TRA ĐƠN HÀNG ĐÃ SAO LƯU
+
+*(Chi tiết xem thêm tại tài liệu chuyên sâu: [docs/backup.md](docs/backup.md))*
+
+Mục tiêu của bài kiểm thử là chứng minh tính an toàn dữ liệu, khả năng khôi phục sau thảm họa (Disaster Recovery), bảo toàn **100% dữ liệu đơn hàng đã đặt** với thời gian phục hồi **RTO < 30 giây** (thực tế $\approx 1.15$ giây) và mức độ tổn thất **RPO = 0 giây** theo chuẩn SRE/DevOps.
+
+### Cách 1: Chạy tự động 1 câu lệnh (Khuyên dùng khi báo cáo & kiểm tra nhanh)
+
+Hệ thống đã xây dựng sẵn script kiểm thử tự động độc lập (Shadow Testing). Script sẽ tự động: sao lưu CSDL hiện tại $\rightarrow$ tạo CSDL thử nghiệm cô lập `ecommerce_verify_test` $\rightarrow$ khôi phục bản sao lưu $\rightarrow$ đo thời gian RTO $\rightarrow$ đối soát 100% số lượng bản ghi của cả 8 bảng (đặc biệt là bảng `orders` và `order_items`) $\rightarrow$ dọn dẹp và in bảng kết luận nghiệm thu.
+
+* **Trên Windows PowerShell:**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\verify-backup.ps1
+  ```
+* **Trên Linux / macOS / Git Bash:**
+  ```bash
+  chmod +x ./scripts/verify-backup.sh
+  ./scripts/verify-backup.sh
+  ```
+
+---
+
+### Cách 2: Quy trình thực hiện thủ công từng bước
+
+#### Bước 1: Kiểm tra các đơn hàng hiện có trong CSDL
+Kiểm tra danh sách đơn hàng đã được người mua đặt trên hệ thống:
+```bash
+docker exec -i ecommerce_database psql -U ecommerce_user -d ecommerce_db -c "
+SELECT id, user_id, total_amount, status, created_at FROM orders ORDER BY id DESC LIMIT 5;"
+```
+*(Ghi nhận số lượng đơn hàng hiện tại: `SELECT COUNT(*) FROM orders;`)*
+
+#### Bước 2: Kích hoạt sao lưu toàn phần (Backup Snapshot)
+Thực thi lệnh sao lưu logic qua `pg_dump` nén `gzip`:
+* **Bằng Shell Script:**
+  ```bash
+  bash scripts/backup.sh
+  ```
+* **Bằng PowerShell (nếu không có Bash):**
+  ```powershell
+  $backupFile = ".\database\backups\auramall_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').sql"
+  docker exec ecommerce_database pg_dump -U ecommerce_user -d ecommerce_db --clean --if-exists -f /tmp/backup.sql
+  docker cp ecommerce_database:/tmp/backup.sql $backupFile
+  docker exec ecommerce_database rm -f /tmp/backup.sql
+  ```
+*Tệp sao lưu sẽ được lưu tại thư mục `./database/backups/auramall_backup_*.sql.gz`.*
+
+#### Bước 3: Giả lập sự cố mất mát dữ liệu hoặc xóa đơn hàng
+Giả định hệ thống gặp sự cố mất dữ liệu đơn hàng:
+```bash
+docker exec -i ecommerce_database psql -U ecommerce_user -d ecommerce_db -c "
+DELETE FROM order_items;
+DELETE FROM orders;
+"
+```
+*(Kiểm tra lại: `SELECT COUNT(*) FROM orders;` $\rightarrow$ Trả về `0` bản ghi - Dữ liệu đã bị xóa).*
+
+#### Bước 4: Thực hiện phục hồi từ bản sao lưu (Restore)
+Chạy script phục hồi từ tệp sao lưu đã tạo ở Bước 2:
+```bash
+bash scripts/restore.sh ./database/backups/<TEN_TEP_BACKUP>.sql.gz
+```
+*(Hoặc dùng PowerShell: `docker cp <file> ecommerce_database:/tmp/restore.sql` và `docker exec ecommerce_database psql -U ecommerce_user -d ecommerce_db -f /tmp/restore.sql`)*
+
+#### Bước 5: Kiểm tra và nghiệm thu đơn hàng sau phục hồi
+Truy vấn lại cơ sở dữ liệu để xác nhận đơn hàng đã được khôi phục nguyên vẹn 100%:
+```bash
+docker exec -i ecommerce_database psql -U ecommerce_user -d ecommerce_db -c "
+SELECT COUNT(*) AS total_orders FROM orders;
+SELECT COUNT(*) AS total_order_items FROM order_items;
+SELECT id, user_id, total_amount, status FROM orders ORDER BY id DESC LIMIT 5;
+"
+```
+* **Tiêu chuẩn nghiệm thu:**
+  - Toàn bộ số lượng đơn hàng và chi tiết đơn hàng khớp 100% so với trước khi xóa.
+  - Ứng dụng Web truy cập bình thường, người mua xem lại được đơn hàng trên màn hình "Đơn mua".
+  - Kiểm tra trạng thái hệ thống: `curl http://localhost/health` $\rightarrow$ `{"status":"ok"}`.
+
+---
+
+## 8. BẢNG XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
 
 | Hiện tượng / Thông báo lỗi | Nguyên nhân | Cách khắc phục |
 | :--- | :--- | :--- |
@@ -235,8 +381,11 @@ Nhóm sẽ thực hiện chạy đo tải các mức và cập nhật số liệ
 
 ---
 
-## 8. TÀI LIỆU KỸ THUẬT & HỢP ĐỒNG API LIÊN QUAN
+## 9. TÀI LIỆU KỸ THUẬT & HỢP ĐỒNG API LIÊN QUAN
 
+* **Tài liệu Tổng hợp Chi tiết Xây dựng Dự án (.md):** [docs/TONG_HOP_CHI_TIET_XAY_DUNG_DU_AN_TMDT.md](docs/TONG_HOP_CHI_TIET_XAY_DUNG_DU_AN_TMDT.md)
+* **Tài liệu Hướng dẫn Sao lưu, Phục hồi & Kiểm toán CSDL (.md):** [docs/backup.md](docs/backup.md)
+* **Tài liệu Đặc tả Nghiệp vụ & Thiết kế Chức năng (.docx):** [docs/TAI_LIEU_THIET_KE_NGHIEP_VU_AURAMALL.docx](docs/TAI_LIEU_THIET_KE_NGHIEP_VU_AURAMALL.docx) *(Bản xem nhanh: [docs/TAI_LIEU_THIET_KE_NGHIEP_VU_AURAMALL.md](docs/TAI_LIEU_THIET_KE_NGHIEP_VU_AURAMALL.md))*
 * **Hợp đồng API chi tiết (API Contract):** [docs/api-contract.md](docs/api-contract.md)
 * **Swagger UI trực tiếp:** [http://localhost/api/docs/](http://localhost/api/docs/) (Đặc tả OpenAPI trong [backend/openapi.js](backend/openapi.js))
 * **Sơ đồ kiến trúc hạ tầng Draw.io:** [docs/architecture.drawio](docs/architecture.drawio)
