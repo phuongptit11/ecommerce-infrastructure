@@ -4,17 +4,18 @@
 -- ========================================================
 
 -- 1. Nạp danh mục sản phẩm (10 chủ đề theo bản thiết kế)
+-- Trong database/seed.sql:
 INSERT INTO categories (id, name, slug, icon, display_order) VALUES
-(1, 'Điện thoại & Phụ kiện', 'dien-thoai-phu-kien', '📱', 1),
-(2, 'Thời trang & Quần áo', 'thoi-trang-quan-ao', '👕', 2),
-(3, 'Laptop & Máy tính', 'laptop-may-tinh', '💻', 3),
-(4, 'Thiết bị Âm thanh', 'thiet-bi-am-thanh', '🎧', 4),
-(5, 'Màn hình & Đồ họa', 'man-hinh-do-hoa', '🖥️', 5),
-(6, 'Bàn ghế Công thái học', 'ban-ghe-cong-thai-hoc', '🪑', 6),
-(7, 'Ổ cứng & Thiết bị lưu trữ', 'thiet-bi-luu-tru', '💾', 7),
-(8, 'Cáp sạc & Pin sạc', 'cap-sac-pin-sac', '🔋', 8),
-(9, 'Thiết bị Nhà thông minh', 'thiet-bi-nha-thong-minh', '💡', 9),
-(10, 'Gaming & Ngoại vi', 'gaming-ngoai-vi', '🎮', 10)
+(1, 'Điện thoại & Phụ kiện', 'dien-thoai-phu-kien', '', 1),
+(2, 'Thời trang & Quần áo', 'thoi-trang-quan-ao', '', 2),
+(3, 'Laptop & Máy tính', 'laptop-may-tinh', '', 3),
+(4, 'Thiết bị Âm thanh', 'thiet-bi-am-thanh', '', 4),
+(5, 'Màn hình & Đồ họa', 'man-hinh-do-hoa', '', 5),
+(6, 'Bàn ghế Công thái học', 'ban-ghe-cong-thai-hoc', '', 6),
+(7, 'Ổ cứng & Thiết bị lưu trữ', 'thiet-bi-luu-tru', '', 7),
+(8, 'Cáp sạc & Pin sạc', 'cap-sac-pin-sac', '', 8),
+(9, 'Thiết bị Nhà thông minh', 'thiet-bi-nha-thong-minh', '', 9),
+(10, 'Gaming & Ngoại vi', 'gaming-ngoai-vi', '', 10)
 ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
